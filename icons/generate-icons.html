@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Generate Icons</title>
+</head>
+<body>
+  <h1>Right-click each image and save as PNG</h1>
+  <h2>icon16.png</h2>
+  <canvas id="c16" width="16" height="16"></canvas>
+  <h2>icon48.png</h2>
+  <canvas id="c48" width="48" height="48"></canvas>
+  <h2>icon128.png</h2>
+  <canvas id="c128" width="128" height="128"></canvas>
+
+  <script>
+    function drawIcon(canvas, size) {
+      const ctx = canvas.getContext('2d');
+      const r = size * 0.1875; // border radius ratio
+
+      // Background
+      ctx.fillStyle = '#0066cc';
+      ctx.beginPath();
+      ctx.roundRect(0, 0, size, size, r);
+      ctx.fill();
+
+      // Lines
+      ctx.strokeStyle = 'white';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = size * 0.08;
+
+      const margin = size * 0.25;
+      const lineY1 = size * 0.3125;
+      const lineY2 = size * 0.5;
+      const lineY3 = size * 0.6875;
+
+      ctx.beginPath();
+      ctx.moveTo(margin, lineY1);
+      ctx.lineTo(size - margin, lineY1);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(margin, lineY2);
+      ctx.lineTo(size - margin - size * 0.125, lineY2);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(margin, lineY3);
+      ctx.lineTo(size - margin - size * 0.0625, lineY3);
+      ctx.stroke();
+    }
+
+    drawIcon(document.getElementById('c16'), 16);
+    drawIcon(document.getElementById('c48'), 48);
+    drawIcon(document.getElementById('c128'), 128);
+
+    // Auto download
+    ['c16', 'c48', 'c128'].forEach(id => {
+      const canvas = document.getElementById(id);
+      const size = id.replace('c', '');
+      const link = document.createElement('a');
+      link.download = `icon${size}.png`;
+      link.href = canvas.toDataURL('image/png');
+      document.body.appendChild(link);
+      const p = document.createElement('p');
+      p.innerHTML = `<a href="${link.href}" download="icon${size}.png">Download icon${size}.png</a>`;
+      canvas.parentNode.insertBefore(p, canvas.nextSibling);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reporting Commits - Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>Reporting Commits Tracker</h1>
+      <p>Configure your GitHub settings</p>
+    </header>
+
+    <form id="settingsForm">
+      <div class="form-group">
+        <label for="token">GitHub Personal Access Token</label>
+        <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxx" required>
+        <p class="hint">
+          Create a token at
+          <a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a>
+          with <code>repo</code> scope
+        </p>
+      </div>
+
+      <div class="form-group">
+        <label for="username">GitHub Username</label>
+        <input type="text" id="username" placeholder="your-username" required>
+        <p class="hint">Your GitHub username for filtering commits</p>
+      </div>
+
+      <div class="form-group">
+        <label for="organization">GitHub Organization</label>
+        <input type="text" id="organization" placeholder="your-organization" required>
+        <p class="hint">Organization name to search repositories in</p>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+        <button type="button" class="btn btn-secondary" id="testBtn">Test Connection</button>
+      </div>
+    </form>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

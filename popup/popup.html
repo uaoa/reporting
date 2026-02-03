@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reporting Commits</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>Commits Tracker</h1>
+      <div class="date-display" id="dateDisplay">--.--.----</div>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="commits">Commits</button>
+      <button class="tab" data-tab="mappings">Mappings</button>
+    </div>
+
+    <div class="tab-content" id="commitsTab">
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <span>Loading commits...</span>
+      </div>
+
+      <div class="empty-state" id="emptyState" style="display: none;">
+        <p>No commits found for this date</p>
+      </div>
+
+      <div class="error-state" id="errorState" style="display: none;">
+        <p id="errorMessage"></p>
+        <button class="btn btn-small" id="openSettings">Open Settings</button>
+      </div>
+
+      <ul class="commits-list" id="commitsList"></ul>
+    </div>
+
+    <div class="tab-content" id="mappingsTab" style="display: none;">
+      <form class="mapping-form" id="mappingForm">
+        <div class="form-row">
+          <input type="text" id="ticketInput" placeholder="Ticket (e.g., 95987)" required>
+          <input type="text" id="slugInput" placeholder="Slug (e.g., forms)" required>
+          <button type="submit" class="btn btn-primary">Add</button>
+        </div>
+      </form>
+
+      <div class="mappings-list" id="mappingsList">
+        <p class="empty-mappings">No mappings yet</p>
+      </div>
+    </div>
+
+    <div class="toast" id="toast">Copied!</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
