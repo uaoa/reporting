@@ -10,10 +10,12 @@
   <div class="container">
     <header class="header">
       <h1>Reporting Commits Tracker</h1>
-      <p>Configure your GitHub settings</p>
+      <p>Configure your integrations</p>
     </header>
 
-    <form id="settingsForm">
+    <div class="section">
+      <h2 class="section-title">GitHub</h2>
+      <form id="githubForm">
       <div class="form-group">
         <label for="token">GitHub Personal Access Token</label>
         <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxx" required>
@@ -37,12 +39,44 @@
       </div>
 
       <div class="actions">
-        <button type="submit" class="btn btn-primary">Save Settings</button>
-        <button type="button" class="btn btn-secondary" id="testBtn">Test Connection</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+        <button type="button" class="btn btn-secondary" id="testGithubBtn">Test</button>
       </div>
+      <div class="status" id="githubStatus"></div>
     </form>
+    </div>
 
-    <div class="status" id="status"></div>
+    <div class="section">
+      <h2 class="section-title">Azure DevOps</h2>
+      <form id="devopsForm">
+        <div class="form-group">
+          <label for="devopsToken">Personal Access Token</label>
+          <input type="password" id="devopsToken" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxx">
+          <div class="hint">
+            <p>Create a token at <a href="https://dev.azure.com/_usersSettings/tokens" target="_blank">dev.azure.com/_usersSettings/tokens</a></p>
+            <p><strong>Settings:</strong></p>
+            <ul class="hint-list">
+              <li><strong>Organization:</strong> Select your organization or "All accessible organizations"</li>
+              <li><strong>Expiration:</strong> Set as needed (max 1 year)</li>
+              <li><strong>Scopes:</strong> Select "Custom defined"</li>
+              <li><strong>Work Items:</strong> Check <code>Read</code></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="devopsOrganization">Organization</label>
+          <input type="text" id="devopsOrganization" placeholder="your-organization">
+          <p class="hint">Your Azure DevOps organization name (from URL: dev.azure.com/<strong>organization</strong>)</p>
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn btn-primary">Save</button>
+          <button type="button" class="btn btn-secondary" id="testDevopsBtn">Test</button>
+        </div>
+        <div class="status" id="devopsStatus"></div>
+      </form>
+    </div>
   </div>
 
   <script src="options.js"></script>

@@ -13,8 +13,9 @@
       <input type="date" id="datePicker" class="date-picker">
     </header>
 
-    <div class="tabs">
+    <div class="tabs" id="tabsContainer">
       <button class="tab active" data-tab="commits">Commits</button>
+      <button class="tab" data-tab="devops">DevOps</button>
       <button class="tab" data-tab="mappings">Mappings</button>
     </div>
 
@@ -34,6 +35,24 @@
       </div>
 
       <ul class="commits-list" id="commitsList"></ul>
+    </div>
+
+    <div class="tab-content" id="devopsTab" style="display: none;">
+      <div class="loading" id="devopsLoading">
+        <div class="spinner"></div>
+        <span>Loading tasks...</span>
+      </div>
+
+      <div class="empty-state" id="devopsEmptyState" style="display: none;">
+        <p>No tasks assigned to you</p>
+      </div>
+
+      <div class="error-state" id="devopsErrorState" style="display: none;">
+        <p id="devopsErrorMessage"></p>
+        <button class="btn btn-small" id="openDevopsSettings">Open Settings</button>
+      </div>
+
+      <ul class="tasks-list" id="tasksList"></ul>
     </div>
 
     <div class="tab-content" id="mappingsTab" style="display: none;">

@@ -10,7 +10,8 @@
   ],
   "host_permissions": [
     "https://rep.smartcloud.com.ua/*",
-    "https://api.github.com/*"
+    "https://api.github.com/*",
+    "https://dev.azure.com/*"
   ],
   "action": {
     "default_popup": "popup/popup.html",

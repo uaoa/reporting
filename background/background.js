@@ -24,6 +24,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'fetchDevopsTasks') {
+    fetchDevopsTasks()
+      .then(tasks => sendResponse({ tasks }))
+      .catch(error => sendResponse({ error: error.message }));
+    return true;
+  }
+
   if (request.action === 'dateSelected') {
     // Get tab ID from sender (works for both main frame and iframes)
     const tabId = sender.tab?.id;
@@ -113,4 +120,88 @@ async function fetchCommitsForDate(dateStr) {
   return results.flat()
     .filter(c => !seen.has(c.sha) && seen.add(c.sha))
     .sort((a, b) => new Date(b.commit.author.date) - new Date(a.commit.author.date));
+}
+
+// Azure DevOps API functions
+async function fetchDevopsTasks() {
+  const settings = await getSettings();
+  if (!settings.devopsToken || !settings.devopsOrganization) {
+    throw new Error('Please configure DevOps settings');
+  }
+
+  const headers = {
+    'Authorization': `Basic ${btoa(`:${settings.devopsToken}`)}`,
+    'Content-Type': 'application/json'
+  };
+
+  // First, get all projects
+  const projectsRes = await fetch(
+    `https://dev.azure.com/${settings.devopsOrganization}/_apis/projects?api-version=7.0`,
+    { headers }
+  );
+
+  if (!projectsRes.ok) {
+    if (projectsRes.status === 401 || projectsRes.status === 403) {
+      throw new Error('Invalid token or insufficient permissions');
+    }
+    throw new Error(`DevOps API error: ${projectsRes.status}`);
+  }
+
+  const projectsData = await projectsRes.json();
+  const projects = projectsData.value || [];
+
+  // WIQL query to get work items assigned to current user
+  const wiqlQuery = {
+    query: "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.TeamProject] FROM WorkItems WHERE [System.AssignedTo] = @Me AND [System.State] <> 'Closed' AND [System.State] <> 'Done' AND [System.State] <> 'Removed' ORDER BY [System.ChangedDate] DESC"
+  };
+
+  // Query each project for work items
+  const allTasks = [];
+
+  for (const project of projects) {
+    try {
+      const wiqlRes = await fetch(
+        `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_apis/wit/wiql?api-version=7.0`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(wiqlQuery)
+        }
+      );
+
+      if (!wiqlRes.ok) continue;
+
+      const wiqlData = await wiqlRes.json();
+      const workItemIds = (wiqlData.workItems || []).map(wi => wi.id);
+
+      if (workItemIds.length === 0) continue;
+
+      // Fetch work item details in batches of 200
+      for (let i = 0; i < workItemIds.length; i += 200) {
+        const batchIds = workItemIds.slice(i, i + 200).join(',');
+        const detailsRes = await fetch(
+          `https://dev.azure.com/${settings.devopsOrganization}/_apis/wit/workitems?ids=${batchIds}&fields=System.Id,System.Title,System.State,System.WorkItemType,System.TeamProject&api-version=7.0`,
+          { headers }
+        );
+
+        if (detailsRes.ok) {
+          const detailsData = await detailsRes.json();
+          allTasks.push(...(detailsData.value || []).map(wi => ({
+            id: wi.id,
+            title: wi.fields['System.Title'],
+            state: wi.fields['System.State'],
+            type: wi.fields['System.WorkItemType'],
+            project: wi.fields['System.TeamProject'] || project.name,
+            url: `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_workitems/edit/${wi.id}`
+          })));
+        }
+      }
+    } catch {
+      // Skip project on error
+    }
+  }
+
+  // Deduplicate by ID
+  const seen = new Set();
+  return allTasks.filter(task => !seen.has(task.id) && seen.add(task.id));
 }

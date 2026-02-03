@@ -12,7 +12,40 @@ document.addEventListener('DOMContentLoaded', async () => {
   const openSettings = document.getElementById('openSettings');
   const toast = document.getElementById('toast');
 
+  // DevOps elements
+  const devopsLoading = document.getElementById('devopsLoading');
+  const devopsEmptyState = document.getElementById('devopsEmptyState');
+  const devopsErrorState = document.getElementById('devopsErrorState');
+  const devopsErrorMessage = document.getElementById('devopsErrorMessage');
+  const tasksList = document.getElementById('tasksList');
+  const openDevopsSettings = document.getElementById('openDevopsSettings');
+
   let mappings = {};
+  let devopsTasksLoaded = false;
+
+  // Check if settings are configured
+  const { settings } = await chrome.storage.sync.get('settings');
+  const hasGithub = settings?.token && settings?.username && settings?.organization;
+  const hasDevops = settings?.devopsToken && settings?.devopsOrganization;
+
+  // If nothing is configured, redirect to options
+  if (!hasGithub && !hasDevops) {
+    chrome.runtime.openOptionsPage();
+    return;
+  }
+
+  // Hide tabs based on configuration
+  const tabsContainer = document.getElementById('tabsContainer');
+  const commitsTab = tabsContainer.querySelector('[data-tab="commits"]');
+  const devopsTab = tabsContainer.querySelector('[data-tab="devops"]');
+
+  if (!hasGithub) {
+    commitsTab.style.display = 'none';
+    document.querySelector('.header input').style.display = 'none';
+  }
+  if (!hasDevops) {
+    devopsTab.style.display = 'none';
+  }
 
   // Tab switching
   document.querySelectorAll('.tab').forEach(tab => {
@@ -20,9 +53,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.querySelectorAll('.tab').forEach(t => { t.classList.remove('active'); });
       tab.classList.add('active');
       document.getElementById('commitsTab').style.display = tab.dataset.tab === 'commits' ? 'block' : 'none';
+      document.getElementById('devopsTab').style.display = tab.dataset.tab === 'devops' ? 'block' : 'none';
       document.getElementById('mappingsTab').style.display = tab.dataset.tab === 'mappings' ? 'block' : 'none';
+
+      // Load DevOps tasks when tab is clicked for the first time
+      if (tab.dataset.tab === 'devops' && !devopsTasksLoaded && hasDevops) {
+        fetchDevopsTasks();
+      }
     });
   });
+
+  // Auto-select first available tab
+  if (!hasGithub && hasDevops) {
+    devopsTab.click();
+  }
 
   // Toast
   const showToast = (msg = 'Copied!') => {
@@ -36,13 +80,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const copyToClipboard = async (text, element) => {
     await navigator.clipboard.writeText(text);
-    // Save last copied for persistence
     await chrome.storage.local.set({ lastCopied: text });
-    // Remove previous highlight
     if (lastCopiedElement) {
       lastCopiedElement.classList.remove('copied');
     }
-    // Add highlight to current
     if (element) {
       element.classList.add('copied');
       lastCopiedElement = element;
@@ -116,7 +157,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const slug = slugInput.value.trim().toLowerCase();
     if (!ticket || !slug) return;
 
-    // If editing, remove old mapping first
     if (editingItem) {
       mappings[editingItem.slug] = mappings[editingItem.slug].filter(t => t !== editingItem.ticket);
       if (!mappings[editingItem.slug].length) delete mappings[editingItem.slug];
@@ -167,14 +207,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Restore last copied highlight
     chrome.storage.local.get('lastCopied').then(({ lastCopied }) => {
       if (lastCopied) {
-        // Check commit messages
         commitsList.querySelectorAll('.commit-item').forEach(item => {
           if (item.dataset.message === lastCopied) {
             item.classList.add('copied');
             lastCopiedElement = item;
           }
         });
-        // Check tickets
         commitsList.querySelectorAll('.ticket-badge').forEach(badge => {
           if (badge.dataset.ticket === lastCopied) {
             badge.classList.add('copied');
@@ -208,7 +246,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Fetch commits with caching
   const fetchCommits = async (date, forceRefresh = false) => {
-    // Check cache first
     if (!forceRefresh) {
       const { cachedCommits, cachedDate } = await chrome.storage.local.get(['cachedCommits', 'cachedDate']);
       if (cachedDate === date && cachedCommits) {
@@ -229,12 +266,97 @@ document.addEventListener('DOMContentLoaded', async () => {
         showError(response.error);
       } else {
         const commits = response.commits || [];
-        // Cache the results
         await chrome.storage.local.set({ cachedCommits: commits, cachedDate: date });
         renderCommits(commits);
       }
     } catch {
       showError('Failed to fetch commits. Check your settings.');
+    }
+  };
+
+  // ===== DevOps Tasks =====
+
+  const renderDevopsTasks = (tasks) => {
+    devopsLoading.style.display = 'none';
+    if (!tasks.length) {
+      devopsEmptyState.style.display = 'block';
+      return;
+    }
+    devopsEmptyState.style.display = 'none';
+    devopsErrorState.style.display = 'none';
+
+    tasksList.innerHTML = tasks.map(task => `
+      <li class="task-item" data-id="${task.id}">
+        <div class="task-main">
+          <span class="task-id" data-id="${task.id}" title="Click to copy">${task.id}</span>
+          <span class="task-title">${task.title.replace(/</g, '&lt;')}</span>
+        </div>
+        <div class="task-meta">
+          <span class="task-project">${task.project}</span>
+          <span class="task-type task-type-${task.type.toLowerCase().replace(/\s+/g, '-')}">${task.type}</span>
+          <a href="${task.url}" target="_blank" class="task-link" title="Open in DevOps">↗</a>
+        </div>
+      </li>
+    `).join('');
+
+    // Restore last copied highlight
+    chrome.storage.local.get('lastCopied').then(({ lastCopied }) => {
+      if (lastCopied) {
+        tasksList.querySelectorAll('.task-id').forEach(el => {
+          if (el.dataset.id === lastCopied) {
+            el.classList.add('copied');
+            lastCopiedElement = el;
+          }
+        });
+      }
+    });
+
+    // Click to copy task ID
+    tasksList.querySelectorAll('.task-id').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        copyToClipboard(el.dataset.id, el);
+      });
+    });
+  };
+
+  const showDevopsError = (msg) => {
+    devopsLoading.style.display = 'none';
+    devopsEmptyState.style.display = 'none';
+    devopsErrorState.style.display = 'block';
+    devopsErrorMessage.textContent = msg;
+  };
+
+  const fetchDevopsTasks = async (forceRefresh = false) => {
+    devopsTasksLoaded = true;
+
+    // Check cache first
+    if (!forceRefresh) {
+      const { cachedDevopsTasks, cachedDevopsTime } = await chrome.storage.local.get(['cachedDevopsTasks', 'cachedDevopsTime']);
+      // Cache for 5 minutes
+      if (cachedDevopsTasks && cachedDevopsTime && (Date.now() - cachedDevopsTime < 5 * 60 * 1000)) {
+        devopsLoading.style.display = 'none';
+        renderDevopsTasks(cachedDevopsTasks);
+        return;
+      }
+    }
+
+    devopsLoading.style.display = 'flex';
+    devopsEmptyState.style.display = 'none';
+    devopsErrorState.style.display = 'none';
+    tasksList.innerHTML = '';
+
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'fetchDevopsTasks' });
+      if (response.error) {
+        showDevopsError(response.error);
+      } else {
+        const tasks = response.tasks || [];
+        await chrome.storage.local.set({ cachedDevopsTasks: tasks, cachedDevopsTime: Date.now() });
+        renderDevopsTasks(tasks);
+      }
+    } catch {
+      showDevopsError('Failed to fetch tasks. Check your settings.');
     }
   };
 
@@ -244,18 +366,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Event handlers
   openSettings.addEventListener('click', () => chrome.runtime.openOptionsPage());
+  openDevopsSettings.addEventListener('click', () => chrome.runtime.openOptionsPage());
   datePicker.addEventListener('change', () => datePicker.value && fetchCommits(toDisplayFormat(datePicker.value)));
 
   // Initialize
   await loadMappings();
-  const { selectedDate } = await chrome.storage.local.get('selectedDate');
 
-  if (selectedDate) {
-    datePicker.value = toPickerFormat(selectedDate);
-    fetchCommits(selectedDate);
+  if (hasGithub) {
+    const { selectedDate } = await chrome.storage.local.get('selectedDate');
+    if (selectedDate) {
+      datePicker.value = toPickerFormat(selectedDate);
+      fetchCommits(selectedDate);
+    } else {
+      const today = new Date();
+      datePicker.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      loading.style.display = 'none';
+    }
   } else {
-    const today = new Date();
-    datePicker.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     loading.style.display = 'none';
   }
 });
