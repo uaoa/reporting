@@ -31,7 +31,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (tabId) {
       fetchCommitsForDate(request.date)
         .then(commits => {
-          chrome.storage.local.set({ lastCommitsCount: commits.length, lastFetchDate: request.date });
+          // Cache commits for popup
+          chrome.storage.local.set({
+            lastCommitsCount: commits.length,
+            lastFetchDate: request.date,
+            cachedCommits: commits,
+            cachedDate: request.date
+          });
           setIcon(commits.length > 0, tabId);
         })
         .catch(() => setIcon(false, tabId));

@@ -173,8 +173,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     errorMessage.textContent = msg;
   };
 
-  // Fetch commits
-  const fetchCommits = async (date) => {
+  // Fetch commits with caching
+  const fetchCommits = async (date, forceRefresh = false) => {
+    // Check cache first
+    if (!forceRefresh) {
+      const { cachedCommits, cachedDate } = await chrome.storage.local.get(['cachedCommits', 'cachedDate']);
+      if (cachedDate === date && cachedCommits) {
+        loading.style.display = 'none';
+        renderCommits(cachedCommits);
+        return;
+      }
+    }
+
     loading.style.display = 'flex';
     emptyState.style.display = 'none';
     errorState.style.display = 'none';
@@ -185,7 +195,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (response.error) {
         showError(response.error);
       } else {
-        renderCommits(response.commits || []);
+        const commits = response.commits || [];
+        // Cache the results
+        await chrome.storage.local.set({ cachedCommits: commits, cachedDate: date });
+        renderCommits(commits);
       }
     } catch {
       showError('Failed to fetch commits. Check your settings.');
