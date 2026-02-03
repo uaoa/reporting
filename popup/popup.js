@@ -19,9 +19,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const devopsErrorMessage = document.getElementById('devopsErrorMessage');
   const tasksList = document.getElementById('tasksList');
   const openDevopsSettings = document.getElementById('openDevopsSettings');
+  const projectFilter = document.getElementById('projectFilter');
 
   let mappings = {};
   let devopsTasksLoaded = false;
+  let allDevopsTasks = [];
 
   // Check if settings are configured
   const { settings } = await chrome.storage.sync.get('settings');
@@ -309,10 +311,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ===== DevOps Tasks =====
 
-  const renderDevopsTasks = (tasks) => {
-    devopsLoading.style.display = 'none';
+  // Populate project filter dropdown
+  const populateProjectFilter = (tasks) => {
+    const projects = [...new Set(tasks.map(t => t.project))].sort();
+    projectFilter.innerHTML = '<option value="">All Projects</option>' +
+      projects.map(p => `<option value="${p}">${p}</option>`).join('');
+  };
+
+  // Filter and render tasks
+  const filterAndRenderTasks = () => {
+    const selectedProject = projectFilter.value;
+    const filteredTasks = selectedProject
+      ? allDevopsTasks.filter(t => t.project === selectedProject)
+      : allDevopsTasks;
+    renderTasksList(filteredTasks);
+  };
+
+  const renderTasksList = (tasks) => {
     if (!tasks.length) {
       devopsEmptyState.style.display = 'block';
+      tasksList.innerHTML = '';
       return;
     }
     devopsEmptyState.style.display = 'none';
@@ -352,6 +370,26 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     });
   };
+
+  const renderDevopsTasks = (tasks) => {
+    devopsLoading.style.display = 'none';
+    allDevopsTasks = tasks;
+    populateProjectFilter(tasks);
+
+    // Restore saved project filter
+    chrome.storage.local.get('selectedProject').then(({ selectedProject }) => {
+      if (selectedProject && [...projectFilter.options].some(o => o.value === selectedProject)) {
+        projectFilter.value = selectedProject;
+      }
+      filterAndRenderTasks();
+    });
+  };
+
+  // Project filter change handler
+  projectFilter.addEventListener('change', () => {
+    chrome.storage.local.set({ selectedProject: projectFilter.value });
+    filterAndRenderTasks();
+  });
 
   const showDevopsError = (msg) => {
     devopsLoading.style.display = 'none';

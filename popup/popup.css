@@ -48,7 +48,8 @@ body {
   font-weight: 600;
 }
 
-.date-picker {
+.date-picker,
+.project-filter {
   padding: 6px 10px;
   border: 1px solid #ddd;
   border-radius: 6px;
@@ -56,8 +57,13 @@ body {
   cursor: pointer;
 }
 
+.project-filter {
+  max-width: 150px;
+}
+
 @media (prefers-color-scheme: dark) {
-  .date-picker {
+  .date-picker,
+  .project-filter {
     background: #2a2a2a;
     border-color: #444;
     color: #e5e5e5;
@@ -65,7 +71,8 @@ body {
   }
 }
 
-.date-picker:focus {
+.date-picker:focus,
+.project-filter:focus {
   outline: none;
   border-color: #0066cc;
 }
