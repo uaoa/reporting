@@ -2,6 +2,12 @@
 
 A Chrome extension to track commits from GitHub and Azure DevOps for daily reporting.
 
+## Screenshots
+
+| Commits | Tasks | Mappings | About |
+|---------|-------|----------|-------|
+| ![Commits](public/commits.jpg) | ![Tasks](public/tasks.jpg) | ![Mappings](public/mapping.jpg) | ![About](public/about.jpg) |
+
 ## Features
 
 ### Commits Tracking
