@@ -193,9 +193,19 @@ body {
   transform: translateX(2px);
 }
 
+.commit-item.copied {
+  background: #d4edda;
+  border-left: 3px solid #28a745;
+}
+
 @media (prefers-color-scheme: dark) {
   .commit-item:hover {
     background: #333;
+  }
+
+  .commit-item.copied {
+    background: #1e3a2f;
+    border-left-color: #4caf50;
   }
 }
 
@@ -228,6 +238,11 @@ body {
   background: #0052a3;
 }
 
+.ticket-badge.copied {
+  background: #28a745;
+  box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.3);
+}
+
 @media (prefers-color-scheme: dark) {
   .ticket-badge {
     background: #4d9fff;
@@ -236,6 +251,11 @@ body {
 
   .ticket-badge:hover {
     background: #3385ff;
+  }
+
+  .ticket-badge.copied {
+    background: #4caf50;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);
   }
 }
 

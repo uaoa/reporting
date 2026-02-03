@@ -31,9 +31,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => toast.classList.remove('show'), 2000);
   };
 
-  // Copy to clipboard
-  const copyToClipboard = async (text) => {
+  // Copy to clipboard and highlight
+  let lastCopiedElement = null;
+
+  const copyToClipboard = async (text, element) => {
     await navigator.clipboard.writeText(text);
+    // Save last copied for persistence
+    await chrome.storage.local.set({ lastCopied: text });
+    // Remove previous highlight
+    if (lastCopiedElement) {
+      lastCopiedElement.classList.remove('copied');
+    }
+    // Add highlight to current
+    if (element) {
+      element.classList.add('copied');
+      lastCopiedElement = element;
+    }
     showToast();
   };
 
@@ -151,16 +164,36 @@ document.addEventListener('DOMContentLoaded', async () => {
       `;
     }).join('');
 
+    // Restore last copied highlight
+    chrome.storage.local.get('lastCopied').then(({ lastCopied }) => {
+      if (lastCopied) {
+        // Check commit messages
+        commitsList.querySelectorAll('.commit-item').forEach(item => {
+          if (item.dataset.message === lastCopied) {
+            item.classList.add('copied');
+            lastCopiedElement = item;
+          }
+        });
+        // Check tickets
+        commitsList.querySelectorAll('.ticket-badge').forEach(badge => {
+          if (badge.dataset.ticket === lastCopied) {
+            badge.classList.add('copied');
+            lastCopiedElement = badge;
+          }
+        });
+      }
+    });
+
     commitsList.querySelectorAll('.commit-item').forEach(item => {
       item.addEventListener('click', (e) => {
-        if (!e.target.classList.contains('ticket-badge')) copyToClipboard(item.dataset.message);
+        if (!e.target.classList.contains('ticket-badge')) copyToClipboard(item.dataset.message, item);
       });
     });
 
     commitsList.querySelectorAll('.ticket-badge').forEach(badge => {
       badge.addEventListener('click', (e) => {
         e.stopPropagation();
-        copyToClipboard(badge.dataset.ticket);
+        copyToClipboard(badge.dataset.ticket, badge);
       });
     });
   };
