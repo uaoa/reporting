@@ -1,5 +1,21 @@
 // Background service worker for GitHub API
 
+// Create context menu on install
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: 'about',
+    title: 'About Reporting Commits Tracker',
+    contexts: ['action']
+  });
+});
+
+// Handle context menu clicks
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId === 'about') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('about/about.html') });
+  }
+});
+
 // Helper to set icon safely using absolute paths
 async function setIcon(active, tabId) {
   const suffix = active ? '-active' : '';

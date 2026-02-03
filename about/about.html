@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About - Reporting Commits Tracker</title>
+  <link rel="stylesheet" href="about.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="logo">
+        <img src="../icons/icon128.png" alt="Logo" width="64" height="64">
+      </div>
+      <h1>Reporting Commits Tracker</h1>
+      <p class="version">Version 1.0.0</p>
+    </header>
+
+    <section class="section">
+      <h2>Features</h2>
+
+      <div class="feature">
+        <h3>Commits Tracking</h3>
+        <p>Automatically fetch and display your commits from GitHub and Azure DevOps for any selected date. Perfect for daily reporting.</p>
+        <ul>
+          <li>Support for GitHub organizations</li>
+          <li>Support for Azure DevOps projects</li>
+          <li>Filter by source (GitHub, DevOps, or both)</li>
+          <li>Click to copy commit messages</li>
+        </ul>
+      </div>
+
+      <div class="feature">
+        <h3>DevOps Tasks</h3>
+        <p>View all work items assigned to you in Azure DevOps.</p>
+        <ul>
+          <li>Filter tasks by project</li>
+          <li>See task type (Bug, Task, User Story, etc.)</li>
+          <li>Click to copy task ID</li>
+          <li>Quick link to open in DevOps</li>
+        </ul>
+      </div>
+
+      <div class="feature">
+        <h3>Ticket Mappings</h3>
+        <p>Create mappings between keywords (slugs) and ticket numbers for automatic ticket detection in commit messages.</p>
+        <ul>
+          <li>Map multiple tickets to one slug</li>
+          <li>Auto-suggest tickets from DevOps tasks</li>
+          <li>Edit and delete mappings</li>
+        </ul>
+      </div>
+
+      <div class="feature">
+        <h3>Integration with rep.smartcloud.com.ua</h3>
+        <p>When you select a date on the reporting page, the extension automatically loads commits for that day.</p>
+        <ul>
+          <li>Automatic date detection</li>
+          <li>Icon turns green when commits found</li>
+          <li>Quick access via popup</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Quick Start</h2>
+      <ol class="steps">
+        <li>Open extension settings and configure your GitHub and/or Azure DevOps credentials</li>
+        <li>Select which source to use for commits (GitHub, DevOps, or both)</li>
+        <li>Go to rep.smartcloud.com.ua and click on a reporting day</li>
+        <li>Click the extension icon to see your commits</li>
+        <li>Click on a commit to copy its message</li>
+      </ol>
+    </section>
+
+    <section class="section">
+      <h2>Keyboard Shortcuts</h2>
+      <ul class="shortcuts">
+        <li><kbd>Click</kbd> on commit - Copy commit message</li>
+        <li><kbd>Click</kbd> on ticket badge - Copy ticket number</li>
+        <li><kbd>Click</kbd> on task ID - Copy task ID</li>
+      </ul>
+    </section>
+
+    <footer class="footer">
+      <p>Made by <a href="https://github.com/uaoa" target="_blank">Zakharii Melnyk</a></p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -2,11 +2,12 @@
   "manifest_version": 3,
   "name": "Reporting Commits Tracker",
   "version": "1.0.0",
-  "description": "Track GitHub commits for reporting days from rep.smartcloud.com.ua",
+  "description": "Track commits from GitHub and Azure DevOps, manage work items, and map tickets for reporting days",
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://rep.smartcloud.com.ua/*",
