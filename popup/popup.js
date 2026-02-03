@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', async () => {
   const datePicker = document.getElementById('datePicker');
-  const loadBtn = document.getElementById('loadBtn');
   const loading = document.getElementById('loading');
   const emptyState = document.getElementById('emptyState');
   const errorState = document.getElementById('errorState');
@@ -51,6 +50,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   // Render mappings
+  let editingItem = null;
+
   const renderMappings = () => {
     const entries = Object.entries(mappings);
     if (!entries.length) {
@@ -65,10 +66,24 @@ document.addEventListener('DOMContentLoaded', async () => {
             <span class="mapping-arrow">→</span>
             <span class="mapping-slug">${slug}</span>
           </div>
-          <button class="delete-btn" title="Delete">×</button>
+          <div class="mapping-actions">
+            <button class="edit-btn" title="Edit">✎</button>
+            <button class="delete-btn" title="Delete">×</button>
+          </div>
         </div>
       `)
     ).join('');
+
+    mappingsList.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const item = e.target.closest('.mapping-item');
+        const { ticket, slug } = item.dataset;
+        ticketInput.value = ticket;
+        slugInput.value = slug;
+        editingItem = { ticket, slug };
+        ticketInput.focus();
+      });
+    });
 
     mappingsList.querySelectorAll('.delete-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -81,17 +96,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   };
 
-  // Add mapping
+  // Add/edit mapping
   mappingForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const ticket = ticketInput.value.trim();
     const slug = slugInput.value.trim().toLowerCase();
     if (!ticket || !slug) return;
+
+    // If editing, remove old mapping first
+    if (editingItem) {
+      mappings[editingItem.slug] = mappings[editingItem.slug].filter(t => t !== editingItem.ticket);
+      if (!mappings[editingItem.slug].length) delete mappings[editingItem.slug];
+      editingItem = null;
+    }
+
     if (!mappings[slug]) mappings[slug] = [];
     if (!mappings[slug].includes(ticket)) {
       mappings[slug].push(ticket);
-      saveMappings();
     }
+    saveMappings();
     ticketInput.value = '';
     slugInput.value = '';
     ticketInput.focus();
@@ -175,8 +198,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Event handlers
   openSettings.addEventListener('click', () => chrome.runtime.openOptionsPage());
-  loadBtn.addEventListener('click', () => datePicker.value && fetchCommits(toDisplayFormat(datePicker.value)));
-  datePicker.addEventListener('change', () => loadBtn.click());
+  datePicker.addEventListener('change', () => datePicker.value && fetchCommits(toDisplayFormat(datePicker.value)));
 
   // Initialize
   await loadMappings();

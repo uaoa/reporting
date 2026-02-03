@@ -47,12 +47,6 @@ body {
   font-weight: 600;
 }
 
-.date-container {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
 .date-picker {
   padding: 6px 10px;
   border: 1px solid #ddd;
@@ -251,12 +245,13 @@ body {
 
 .form-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .form-row input {
   flex: 1;
-  padding: 8px 12px;
+  min-width: 0;
+  padding: 6px 8px;
   border: 1px solid #ddd;
   border-radius: 6px;
   font-size: 13px;
@@ -369,15 +364,25 @@ body {
   }
 }
 
+.mapping-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.edit-btn,
 .delete-btn {
   background: none;
   border: none;
   color: #999;
   cursor: pointer;
   padding: 4px;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
   transition: color 0.15s;
+}
+
+.edit-btn:hover {
+  color: #0066cc;
 }
 
 .delete-btn:hover {

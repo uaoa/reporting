@@ -10,10 +10,7 @@
   <div class="container">
     <header class="header">
       <h1>Commits Tracker</h1>
-      <div class="date-container">
-        <input type="date" id="datePicker" class="date-picker">
-        <button class="btn btn-small btn-primary" id="loadBtn">Load</button>
-      </div>
+      <input type="date" id="datePicker" class="date-picker">
     </header>
 
     <div class="tabs">
@@ -42,9 +39,9 @@
     <div class="tab-content" id="mappingsTab" style="display: none;">
       <form class="mapping-form" id="mappingForm">
         <div class="form-row">
-          <input type="text" id="ticketInput" placeholder="Ticket (e.g., 95987)" required>
-          <input type="text" id="slugInput" placeholder="Slug (e.g., forms)" required>
-          <button type="submit" class="btn btn-primary">Add</button>
+          <input type="text" id="ticketInput" placeholder="Ticket" required>
+          <input type="text" id="slugInput" placeholder="Slug" required>
+          <button type="submit" class="btn btn-primary btn-small">Add</button>
         </div>
       </form>
 
