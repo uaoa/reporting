@@ -13,72 +13,76 @@
       <p>Configure your integrations</p>
     </header>
 
-    <div class="section">
-      <h2 class="section-title">GitHub</h2>
-      <form id="githubForm">
-      <div class="form-group">
-        <label for="token">GitHub Personal Access Token</label>
-        <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxx" required>
-        <div class="hint">
-          <p>Create a token at <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></p>
-          <p><strong>Required scope:</strong> <code>repo</code> (Full control of private repositories)</p>
-          <p class="scope-note">This is the first checkbox in the list. It allows reading commits from private organization repositories.</p>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label for="username">GitHub Username</label>
-        <input type="text" id="username" placeholder="your-username" required>
-        <p class="hint">Your GitHub username for filtering commits</p>
-      </div>
-
-      <div class="form-group">
-        <label for="organization">GitHub Organization</label>
-        <input type="text" id="organization" placeholder="your-organization" required>
-        <p class="hint">Organization name to search repositories in</p>
-      </div>
-
-      <div class="actions">
-        <button type="submit" class="btn btn-primary">Save</button>
-        <button type="button" class="btn btn-secondary" id="testGithubBtn">Test</button>
-      </div>
-      <div class="status" id="githubStatus"></div>
-    </form>
-    </div>
-
-    <div class="section">
-      <h2 class="section-title">Azure DevOps</h2>
-      <form id="devopsForm">
+    <div class="sections-grid">
+      <div class="section">
+        <h2 class="section-title">GitHub</h2>
+        <form id="githubForm">
         <div class="form-group">
-          <label for="devopsToken">Personal Access Token</label>
-          <input type="password" id="devopsToken" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxx">
+          <label for="token">GitHub Personal Access Token</label>
+          <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxx" required>
           <div class="hint">
-            <p>Create a token at <a href="https://dev.azure.com/_usersSettings/tokens" target="_blank">dev.azure.com/_usersSettings/tokens</a></p>
-            <p><strong>Settings:</strong></p>
-            <ul class="hint-list">
-              <li><strong>Organization:</strong> Select your organization or "All accessible organizations"</li>
-              <li><strong>Expiration:</strong> Set as needed (max 1 year)</li>
-              <li><strong>Scopes:</strong> Select "Custom defined"</li>
-              <li><strong>Work Items:</strong> Check <code>Read</code></li>
-              <li><strong>Code:</strong> Check <code>Read</code> (for commits)</li>
-            </ul>
+            <p>Create a token at <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></p>
+            <p><strong>Required scope:</strong> <code>repo</code> (Full control of private repositories)</p>
+            <p class="scope-note">This is the first checkbox in the list. It allows reading commits from private organization repositories.</p>
           </div>
         </div>
 
         <div class="form-group">
-          <label for="devopsOrganization">Organization</label>
-          <input type="text" id="devopsOrganization" placeholder="your-organization">
-          <p class="hint">Your Azure DevOps organization name (from URL: dev.azure.com/<strong>organization</strong>)</p>
+          <label for="username">GitHub Username</label>
+          <input type="text" id="username" placeholder="your-username" required>
+          <p class="hint">Your GitHub username for filtering commits</p>
+        </div>
+
+        <div class="form-group">
+          <label for="organization">GitHub Organization</label>
+          <input type="text" id="organization" placeholder="your-organization" required>
+          <p class="hint">Organization name to search repositories in</p>
         </div>
 
         <div class="actions">
           <button type="submit" class="btn btn-primary">Save</button>
-          <button type="button" class="btn btn-secondary" id="testDevopsBtn">Test</button>
+          <button type="button" class="btn btn-secondary" id="testGithubBtn">Test</button>
         </div>
-        <div class="status" id="devopsStatus"></div>
+        <div class="status" id="githubStatus"></div>
       </form>
-    </div>
+      </div>
 
+      <div class="section">
+        <h2 class="section-title">Azure DevOps</h2>
+        <form id="devopsForm">
+          <div class="form-group">
+            <label for="devopsToken">Personal Access Token</label>
+            <input type="password" id="devopsToken" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxx">
+            <div class="hint">
+              <p>Create a token at <a href="https://dev.azure.com/_usersSettings/tokens" target="_blank">dev.azure.com/_usersSettings/tokens</a></p>
+              <p><strong>Settings:</strong></p>
+              <ul class="hint-list">
+                <li><strong>Organization:</strong> Select your organization or "All accessible organizations"</li>
+                <li><strong>Expiration:</strong> Set as needed (max 1 year)</li>
+                <li><strong>Scopes:</strong> Select "Custom defined"</li>
+                <li><strong>Work Items:</strong> Check <code>Read</code></li>
+                <li><strong>Code:</strong> Check <code>Read</code> (for commits)</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="devopsOrganization">Organization</label>
+            <input type="text" id="devopsOrganization" placeholder="your-organization">
+            <p class="hint">Your Azure DevOps organization name (from URL: dev.azure.com/<strong>organization</strong>)</p>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" class="btn btn-secondary" id="testDevopsBtn">Test</button>
+          </div>
+          <div class="status" id="devopsStatus"></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="container container-small">
     <div class="section">
       <h2 class="section-title">Commits Source</h2>
       <form id="commitsSourceForm">

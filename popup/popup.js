@@ -405,9 +405,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize
   await loadMappings();
 
-  // Restore last active tab or select first available
-  const { lastActiveTab } = await chrome.storage.local.get('lastActiveTab');
+  // Check if date was recently selected from rep.smartcloud.com.ua
+  const { selectedDate, selectedAt, lastActiveTab } = await chrome.storage.local.get(['selectedDate', 'selectedAt', 'lastActiveTab']);
+  const dateSelectedRecently = selectedAt && (Date.now() - selectedAt < 10000); // within 10 seconds
+
   let initialTab = lastActiveTab;
+
+  // If date was selected recently, force commits tab
+  if (dateSelectedRecently && canShowCommits) {
+    initialTab = 'commits';
+  }
 
   // Validate that the tab is available
   if (initialTab === 'commits' && !canShowCommits) initialTab = null;
@@ -420,7 +427,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   switchTab(initialTab);
 
   if (canShowCommits && initialTab === 'commits') {
-    const { selectedDate } = await chrome.storage.local.get('selectedDate');
     if (selectedDate) {
       datePicker.value = toPickerFormat(selectedDate);
       fetchCommits(selectedDate);

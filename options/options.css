@@ -22,7 +22,7 @@ body {
 }
 
 .container {
-  max-width: 500px;
+  max-width: 900px;
   margin: 0 auto;
   background: #ffffff;
   border-radius: 12px;
@@ -30,10 +30,31 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
+.container-small {
+  max-width: 400px;
+  margin-top: 24px;
+}
+
 @media (prefers-color-scheme: dark) {
   .container {
     background: #1e1e1e;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+}
+
+.sections-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+
+@media (max-width: 768px) {
+  .container {
+    max-width: 500px;
+  }
+
+  .sections-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -65,6 +86,12 @@ body {
 }
 
 .section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.sections-grid .section {
   margin-bottom: 0;
   padding-bottom: 0;
   border-bottom: none;
