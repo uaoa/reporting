@@ -17,6 +17,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const slugInput = document.getElementById('slugInput');
   const openSettings = document.getElementById('openSettings');
   const toast = document.getElementById('toast');
+  const importMappingsBtn = document.getElementById('importMappings');
+  const exportMappingsBtn = document.getElementById('exportMappings');
+  const importFile = document.getElementById('importFile');
 
   // DevOps elements
   const devopsLoading = document.getElementById('devopsLoading');
@@ -445,6 +448,48 @@ document.addEventListener('DOMContentLoaded', async () => {
   openSettings.addEventListener('click', () => chrome.runtime.openOptionsPage());
   openDevopsSettings.addEventListener('click', () => chrome.runtime.openOptionsPage());
   datePicker.addEventListener('change', () => datePicker.value && fetchCommits(toDisplayFormat(datePicker.value)));
+
+  // Export mappings
+  exportMappingsBtn.addEventListener('click', () => {
+    const data = JSON.stringify(mappings, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'mappings.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Exported!');
+  });
+
+  // Import mappings
+  importMappingsBtn.addEventListener('click', () => importFile.click());
+  importFile.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const imported = JSON.parse(text);
+      if (typeof imported === 'object' && imported !== null) {
+        // Merge with existing mappings
+        for (const [slug, tickets] of Object.entries(imported)) {
+          if (Array.isArray(tickets)) {
+            if (!mappings[slug]) mappings[slug] = [];
+            for (const ticket of tickets) {
+              if (!mappings[slug].includes(ticket)) {
+                mappings[slug].push(ticket);
+              }
+            }
+          }
+        }
+        await saveMappings();
+        showToast('Imported!');
+      }
+    } catch {
+      showToast('Invalid file');
+    }
+    importFile.value = '';
+  });
 
   // Initialize
   await loadMappings();

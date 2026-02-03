@@ -307,6 +307,44 @@ body {
   }
 }
 
+.header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #666;
+  transition: all 0.15s;
+}
+
+.icon-btn:hover {
+  background: #f5f5f5;
+  color: #0066cc;
+  border-color: #0066cc;
+}
+
+@media (prefers-color-scheme: dark) {
+  .icon-btn {
+    border-color: #444;
+    color: #999;
+  }
+
+  .icon-btn:hover {
+    background: #333;
+    color: #4d9fff;
+    border-color: #4d9fff;
+  }
+}
+
 .mapping-form {
   margin-bottom: 16px;
 }
