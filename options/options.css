@@ -137,6 +137,19 @@ body {
   }
 }
 
+.hint p {
+  margin-bottom: 4px;
+}
+
+.hint p:last-child {
+  margin-bottom: 0;
+}
+
+.scope-note {
+  font-style: italic;
+  opacity: 0.8;
+}
+
 .actions {
   display: flex;
   gap: 12px;

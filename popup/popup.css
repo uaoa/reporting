@@ -47,16 +47,32 @@ body {
   font-weight: 600;
 }
 
-.date-display {
+.date-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.date-picker {
+  padding: 6px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
   font-size: 14px;
-  color: #666;
-  font-weight: 500;
+  cursor: pointer;
 }
 
 @media (prefers-color-scheme: dark) {
-  .date-display {
-    color: #999;
+  .date-picker {
+    background: #2a2a2a;
+    border-color: #444;
+    color: #e5e5e5;
+    color-scheme: dark;
   }
+}
+
+.date-picker:focus {
+  outline: none;
+  border-color: #0066cc;
 }
 
 .tabs {

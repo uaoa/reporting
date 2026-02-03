@@ -17,11 +17,11 @@
       <div class="form-group">
         <label for="token">GitHub Personal Access Token</label>
         <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxx" required>
-        <p class="hint">
-          Create a token at
-          <a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a>
-          with <code>repo</code> scope
-        </p>
+        <div class="hint">
+          <p>Create a token at <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></p>
+          <p><strong>Required scope:</strong> <code>repo</code> (Full control of private repositories)</p>
+          <p class="scope-note">This is the first checkbox in the list. It allows reading commits from private organization repositories.</p>
+        </div>
       </div>
 
       <div class="form-group">

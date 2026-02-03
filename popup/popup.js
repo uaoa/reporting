@@ -2,7 +2,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const tabs = document.querySelectorAll('.tab');
   const commitsTab = document.getElementById('commitsTab');
   const mappingsTab = document.getElementById('mappingsTab');
-  const dateDisplay = document.getElementById('dateDisplay');
+  const datePicker = document.getElementById('datePicker');
+  const loadBtn = document.getElementById('loadBtn');
   const loading = document.getElementById('loading');
   const emptyState = document.getElementById('emptyState');
   const errorState = document.getElementById('errorState');
@@ -15,7 +16,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const openSettings = document.getElementById('openSettings');
   const toast = document.getElementById('toast');
 
-  let currentDate = null;
   let mappings = {};
 
   // Tab switching
@@ -143,6 +143,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     loading.style.display = 'none';
+    emptyState.style.display = 'none';
+    errorState.style.display = 'none';
+
     commitsList.innerHTML = commits.map(commit => {
       const message = commit.commit.message.split('\n')[0];
       const tickets = getTicketsForCommit(message);
@@ -185,9 +188,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     return div.innerHTML;
   }
 
+  // Reset state
+  function resetState() {
+    loading.style.display = 'flex';
+    emptyState.style.display = 'none';
+    errorState.style.display = 'none';
+    commitsList.innerHTML = '';
+  }
+
   // Show error
   function showError(message) {
     loading.style.display = 'none';
+    emptyState.style.display = 'none';
     errorState.style.display = 'block';
     errorMessage.textContent = message;
   }
@@ -197,25 +209,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.runtime.openOptionsPage();
   });
 
-  // Get date from active tab
-  async function getDateFromTab() {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  // Convert date picker value (yyyy-mm-dd) to dd.mm.yyyy format
+  function datePickerToFormat(dateValue) {
+    if (!dateValue) return null;
+    const [year, month, day] = dateValue.split('-');
+    return `${day}.${month}.${year}`;
+  }
 
-      if (!tab.url.includes('rep.smartcloud.com.ua')) {
-        return null;
-      }
-
-      const result = await chrome.tabs.sendMessage(tab.id, { action: 'getDate' });
-      return result?.date || null;
-    } catch (err) {
-      console.error('Failed to get date from tab:', err);
-      return null;
-    }
+  // Convert dd.mm.yyyy to date picker format (yyyy-mm-dd)
+  function formatToDatePicker(dateStr) {
+    if (!dateStr) return null;
+    const [day, month, year] = dateStr.split('.');
+    return `${year}-${month}-${day}`;
   }
 
   // Fetch commits
   async function fetchCommits(date) {
+    resetState();
+
     try {
       const response = await chrome.runtime.sendMessage({
         action: 'fetchCommits',
@@ -234,16 +245,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // Load button handler
+  loadBtn.addEventListener('click', () => {
+    const dateValue = datePicker.value;
+    if (!dateValue) {
+      showError('Please select a date');
+      return;
+    }
+    const formattedDate = datePickerToFormat(dateValue);
+    fetchCommits(formattedDate);
+  });
+
+  // Auto-load on date change
+  datePicker.addEventListener('change', () => {
+    loadBtn.click();
+  });
+
   // Initialize
   await loadMappings();
 
-  currentDate = await getDateFromTab();
+  // Hide loading initially
+  loading.style.display = 'none';
 
-  if (currentDate) {
-    dateDisplay.textContent = currentDate;
-    fetchCommits(currentDate);
-  } else {
-    loading.style.display = 'none';
-    showError('Open rep.smartcloud.com.ua to track commits');
-  }
+  // Set today's date as default
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  datePicker.value = `${yyyy}-${mm}-${dd}`;
 });
