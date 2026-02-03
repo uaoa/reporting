@@ -84,10 +84,34 @@ function parseDate(dateStr) {
 
 async function fetchCommitsForDate(dateStr) {
   const settings = await getSettings();
-  if (!settings.token || !settings.username || !settings.organization) {
-    throw new Error('Please configure GitHub settings');
+  const commitsSource = settings.commitsSource || 'both';
+
+  const hasGithub = settings.token && settings.username && settings.organization;
+  const hasDevops = settings.devopsToken && settings.devopsOrganization;
+
+  const allCommits = [];
+
+  // Fetch from GitHub if configured
+  if ((commitsSource === 'github' || commitsSource === 'both') && hasGithub) {
+    const githubCommits = await fetchGithubCommits(settings, dateStr);
+    allCommits.push(...githubCommits);
   }
 
+  // Fetch from DevOps if configured
+  if ((commitsSource === 'devops' || commitsSource === 'both') && hasDevops) {
+    const devopsCommits = await fetchDevopsCommits(settings, dateStr);
+    allCommits.push(...devopsCommits);
+  }
+
+  if (allCommits.length === 0 && !hasGithub && !hasDevops) {
+    throw new Error('Please configure GitHub or DevOps settings');
+  }
+
+  // Sort all commits by date
+  return allCommits.sort((a, b) => new Date(b.commit.author.date) - new Date(a.commit.author.date));
+}
+
+async function fetchGithubCommits(settings, dateStr) {
   const date = parseDate(dateStr);
   const nextDate = new Date(date);
   nextDate.setDate(nextDate.getDate() + 1);
@@ -99,7 +123,11 @@ async function fetchCommitsForDate(dateStr) {
   let page = 1;
   while (true) {
     const res = await fetch(`https://api.github.com/orgs/${settings.organization}/repos?per_page=100&page=${page}&type=all`, { headers });
-    if (!res.ok) throw new Error(res.status === 401 ? 'Invalid token' : res.status === 404 ? 'Organization not found' : `API error: ${res.status}`);
+    if (!res.ok) {
+      if (res.status === 401) throw new Error('GitHub: Invalid token');
+      if (res.status === 404) throw new Error('GitHub: Organization not found');
+      throw new Error(`GitHub API error: ${res.status}`);
+    }
     const data = await res.json();
     repos.push(...data);
     if (data.length < 100) break;
@@ -115,11 +143,100 @@ async function fetchCommitsForDate(dateStr) {
     return res.ok ? res.json() : [];
   }));
 
-  // Deduplicate and sort
+  // Deduplicate
   const seen = new Set();
   return results.flat()
     .filter(c => !seen.has(c.sha) && seen.add(c.sha))
-    .sort((a, b) => new Date(b.commit.author.date) - new Date(a.commit.author.date));
+    .map(c => ({
+      ...c,
+      source: 'github'
+    }));
+}
+
+async function fetchDevopsCommits(settings, dateStr) {
+  const date = parseDate(dateStr);
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + 1);
+
+  const headers = {
+    'Authorization': `Basic ${btoa(`:${settings.devopsToken}`)}`,
+    'Content-Type': 'application/json'
+  };
+
+  // Get all projects
+  const projectsRes = await fetch(
+    `https://dev.azure.com/${settings.devopsOrganization}/_apis/projects?api-version=7.0`,
+    { headers }
+  );
+
+  if (!projectsRes.ok) {
+    if (projectsRes.status === 401 || projectsRes.status === 403) {
+      throw new Error('DevOps: Invalid token or insufficient permissions');
+    }
+    throw new Error(`DevOps API error: ${projectsRes.status}`);
+  }
+
+  const projectsData = await projectsRes.json();
+  const projects = projectsData.value || [];
+
+  const allCommits = [];
+  const fromDate = date.toISOString();
+  const toDate = nextDate.toISOString();
+
+  // Get commits from each project's repositories
+  for (const project of projects) {
+    try {
+      // Get repos in project
+      const reposRes = await fetch(
+        `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_apis/git/repositories?api-version=7.0`,
+        { headers }
+      );
+
+      if (!reposRes.ok) continue;
+
+      const reposData = await reposRes.json();
+      const repos = reposData.value || [];
+
+      // Get commits from each repo
+      for (const repo of repos) {
+        try {
+          const commitsRes = await fetch(
+            `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_apis/git/repositories/${repo.id}/commits?searchCriteria.fromDate=${fromDate}&searchCriteria.toDate=${toDate}&api-version=7.0`,
+            { headers }
+          );
+
+          if (!commitsRes.ok) continue;
+
+          const commitsData = await commitsRes.json();
+          const commits = commitsData.value || [];
+
+          allCommits.push(...commits.map(c => ({
+            sha: c.commitId,
+            html_url: `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_git/${repo.name}/commit/${c.commitId}`,
+            commit: {
+              message: c.comment,
+              author: {
+                name: c.author.name,
+                email: c.author.email,
+                date: c.author.date
+              }
+            },
+            source: 'devops',
+            project: project.name,
+            repo: repo.name
+          })));
+        } catch {
+          // Skip repo on error
+        }
+      }
+    } catch {
+      // Skip project on error
+    }
+  }
+
+  // Deduplicate by commit ID
+  const seen = new Set();
+  return allCommits.filter(c => !seen.has(c.sha) && seen.add(c.sha));
 }
 
 // Azure DevOps API functions

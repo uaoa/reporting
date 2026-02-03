@@ -8,18 +8,18 @@
 </head>
 <body>
   <div class="container">
-    <header class="header">
-      <h1>Commits Tracker</h1>
-      <input type="date" id="datePicker" class="date-picker">
-    </header>
-
     <div class="tabs" id="tabsContainer">
       <button class="tab active" data-tab="commits">Commits</button>
-      <button class="tab" data-tab="devops">DevOps</button>
+      <button class="tab" data-tab="devops">Tasks</button>
       <button class="tab" data-tab="mappings">Mappings</button>
     </div>
 
     <div class="tab-content" id="commitsTab">
+      <header class="tab-header">
+        <h1>Commits Tracker</h1>
+        <input type="date" id="datePicker" class="date-picker">
+      </header>
+
       <div class="loading" id="loading">
         <div class="spinner"></div>
         <span>Loading commits...</span>
@@ -38,6 +38,10 @@
     </div>
 
     <div class="tab-content" id="devopsTab" style="display: none;">
+      <header class="tab-header">
+        <h1>My Tasks</h1>
+      </header>
+
       <div class="loading" id="devopsLoading">
         <div class="spinner"></div>
         <span>Loading tasks...</span>
@@ -56,6 +60,10 @@
     </div>
 
     <div class="tab-content" id="mappingsTab" style="display: none;">
+      <header class="tab-header">
+        <h1>Mappings</h1>
+      </header>
+
       <form class="mapping-form" id="mappingForm">
         <div class="form-row">
           <input type="text" id="ticketInput" placeholder="Ticket" list="ticketOptions" required>

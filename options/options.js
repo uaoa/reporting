@@ -14,6 +14,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const testDevopsBtn = document.getElementById('testDevopsBtn');
   const devopsStatus = document.getElementById('devopsStatus');
 
+  // Commits source elements
+  const commitsSourceForm = document.getElementById('commitsSourceForm');
+  const sourceGithub = document.getElementById('sourceGithub');
+  const sourceDevops = document.getElementById('sourceDevops');
+  const sourceBoth = document.getElementById('sourceBoth');
+  const sourceStatus = document.getElementById('sourceStatus');
+
   // Load existing settings
   const result = await chrome.storage.sync.get('settings');
   const settings = result.settings || {};
@@ -26,6 +33,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Populate DevOps fields
   if (settings.devopsToken) devopsTokenInput.value = settings.devopsToken;
   if (settings.devopsOrganization) devopsOrganizationInput.value = settings.devopsOrganization;
+
+  // Populate commits source
+  const commitsSource = settings.commitsSource || 'both';
+  if (commitsSource === 'github') sourceGithub.checked = true;
+  else if (commitsSource === 'devops') sourceDevops.checked = true;
+  else sourceBoth.checked = true;
 
   // Show status message
   function showStatus(element, message, isError = false) {
@@ -166,5 +179,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       testDevopsBtn.disabled = false;
       testDevopsBtn.textContent = 'Test';
     }
+  });
+
+  // Save commits source
+  commitsSourceForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const result = await chrome.storage.sync.get('settings');
+    const currentSettings = result.settings || {};
+
+    let selectedSource = 'both';
+    if (sourceGithub.checked) selectedSource = 'github';
+    else if (sourceDevops.checked) selectedSource = 'devops';
+
+    const newSettings = {
+      ...currentSettings,
+      commitsSource: selectedSource
+    };
+
+    await chrome.storage.sync.set({ settings: newSettings });
+    showStatus(sourceStatus, 'Commits source saved!');
   });
 });

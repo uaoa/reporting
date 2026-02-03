@@ -39,9 +39,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const commitsTab = tabsContainer.querySelector('[data-tab="commits"]');
   const devopsTab = tabsContainer.querySelector('[data-tab="devops"]');
 
-  if (!hasGithub) {
+  // Get commits source setting
+  const commitsSource = settings?.commitsSource || 'both';
+  const canShowCommits = (commitsSource === 'github' && hasGithub) ||
+                         (commitsSource === 'devops' && hasDevops) ||
+                         (commitsSource === 'both' && (hasGithub || hasDevops));
+
+  if (!canShowCommits) {
     commitsTab.style.display = 'none';
-    document.querySelector('.header input').style.display = 'none';
   }
   if (!hasDevops) {
     devopsTab.style.display = 'none';
@@ -216,10 +221,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     commitsList.innerHTML = commits.map(c => {
       const msg = c.commit.message.split('\n')[0];
       const tickets = getTicketsForCommit(msg);
+      const sourceBadge = c.source === 'devops'
+        ? `<span class="source-badge source-devops">DevOps</span>`
+        : `<span class="source-badge source-github">GitHub</span>`;
       return `
         <li class="commit-item" data-message="${msg.replace(/"/g, '&quot;')}">
-          <div class="commit-message">${msg.replace(/</g, '&lt;')}</div>
-          ${tickets.length ? `<div class="commit-tickets">${tickets.map(t => `<span class="ticket-badge" data-ticket="${t}">${t}</span>`).join('')}</div>` : ''}
+          <div class="commit-main">
+            <div class="commit-message">${msg.replace(/</g, '&lt;')}</div>
+            <div class="commit-meta">
+              ${sourceBadge}
+              ${tickets.length ? tickets.map(t => `<span class="ticket-badge" data-ticket="${t}">${t}</span>`).join('') : ''}
+            </div>
+          </div>
         </li>
       `;
     }).join('');
@@ -397,16 +410,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   let initialTab = lastActiveTab;
 
   // Validate that the tab is available
-  if (initialTab === 'commits' && !hasGithub) initialTab = null;
+  if (initialTab === 'commits' && !canShowCommits) initialTab = null;
   if (initialTab === 'devops' && !hasDevops) initialTab = null;
 
   if (!initialTab) {
-    initialTab = hasGithub ? 'commits' : (hasDevops ? 'devops' : 'mappings');
+    initialTab = canShowCommits ? 'commits' : (hasDevops ? 'devops' : 'mappings');
   }
 
   switchTab(initialTab);
 
-  if (hasGithub && initialTab === 'commits') {
+  if (canShowCommits && initialTab === 'commits') {
     const { selectedDate } = await chrome.storage.local.get('selectedDate');
     if (selectedDate) {
       datePicker.value = toPickerFormat(selectedDate);

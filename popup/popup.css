@@ -28,22 +28,23 @@ body {
   height: 100%;
 }
 
-.header {
-  padding: 12px 16px;
-  border-bottom: 1px solid #e5e5e5;
+.tab-header {
+  padding: 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  border-bottom: 1px solid #e5e5e5;
+  margin: -12px -12px 12px -12px;
 }
 
 @media (prefers-color-scheme: dark) {
-  .header {
+  .tab-header {
     border-bottom-color: #333;
   }
 }
 
-.header h1 {
-  font-size: 16px;
+.tab-header h1 {
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -209,17 +210,51 @@ body {
   }
 }
 
-.commit-message {
+.commit-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   flex: 1;
+}
+
+.commit-message {
   word-break: break-word;
   font-size: 13px;
 }
 
-.commit-tickets {
+.commit-meta {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.source-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.source-github {
+  background: #24292e;
+  color: white;
+}
+
+.source-devops {
+  background: #0078d4;
+  color: white;
+}
+
+@media (prefers-color-scheme: dark) {
+  .source-github {
+    background: #6e7681;
+  }
+
+  .source-devops {
+    background: #4d9fff;
+    color: #1a1a1a;
+  }
 }
 
 .ticket-badge {
