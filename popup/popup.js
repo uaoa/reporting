@@ -47,26 +47,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     devopsTab.style.display = 'none';
   }
 
-  // Tab switching
+  // Tab switching with persistence
+  const switchTab = (tabName) => {
+    document.querySelectorAll('.tab').forEach(t => { t.classList.remove('active'); });
+    const tab = tabsContainer.querySelector(`[data-tab="${tabName}"]`);
+    if (tab) tab.classList.add('active');
+    document.getElementById('commitsTab').style.display = tabName === 'commits' ? 'block' : 'none';
+    document.getElementById('devopsTab').style.display = tabName === 'devops' ? 'block' : 'none';
+    document.getElementById('mappingsTab').style.display = tabName === 'mappings' ? 'block' : 'none';
+
+    // Save last active tab
+    chrome.storage.local.set({ lastActiveTab: tabName });
+
+    // Load DevOps tasks when tab is clicked for the first time
+    if (tabName === 'devops' && !devopsTasksLoaded && hasDevops) {
+      fetchDevopsTasks();
+    }
+
+    // Populate ticket datalist when mappings tab is opened
+    if (tabName === 'mappings' && hasDevops) {
+      populateTicketDatalist();
+    }
+  };
+
   document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach(t => { t.classList.remove('active'); });
-      tab.classList.add('active');
-      document.getElementById('commitsTab').style.display = tab.dataset.tab === 'commits' ? 'block' : 'none';
-      document.getElementById('devopsTab').style.display = tab.dataset.tab === 'devops' ? 'block' : 'none';
-      document.getElementById('mappingsTab').style.display = tab.dataset.tab === 'mappings' ? 'block' : 'none';
-
-      // Load DevOps tasks when tab is clicked for the first time
-      if (tab.dataset.tab === 'devops' && !devopsTasksLoaded && hasDevops) {
-        fetchDevopsTasks();
-      }
-    });
+    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
   });
-
-  // Auto-select first available tab
-  if (!hasGithub && hasDevops) {
-    devopsTab.click();
-  }
 
   // Toast
   const showToast = (msg = 'Copied!') => {
@@ -89,6 +95,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       lastCopiedElement = element;
     }
     showToast();
+  };
+
+  // Populate ticket input datalist with DevOps tasks
+  const populateTicketDatalist = async () => {
+    const datalist = document.getElementById('ticketOptions');
+    if (!datalist || !hasDevops) return;
+
+    // Use cached tasks if available
+    const { cachedDevopsTasks } = await chrome.storage.local.get('cachedDevopsTasks');
+    if (cachedDevopsTasks?.length) {
+      datalist.innerHTML = cachedDevopsTasks.map(task =>
+        `<option value="${task.id}">${task.id} - ${task.title.substring(0, 50)}${task.title.length > 50 ? '...' : ''}</option>`
+      ).join('');
+    }
   };
 
   // Load/save mappings
@@ -372,7 +392,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize
   await loadMappings();
 
-  if (hasGithub) {
+  // Restore last active tab or select first available
+  const { lastActiveTab } = await chrome.storage.local.get('lastActiveTab');
+  let initialTab = lastActiveTab;
+
+  // Validate that the tab is available
+  if (initialTab === 'commits' && !hasGithub) initialTab = null;
+  if (initialTab === 'devops' && !hasDevops) initialTab = null;
+
+  if (!initialTab) {
+    initialTab = hasGithub ? 'commits' : (hasDevops ? 'devops' : 'mappings');
+  }
+
+  switchTab(initialTab);
+
+  if (hasGithub && initialTab === 'commits') {
     const { selectedDate } = await chrome.storage.local.get('selectedDate');
     if (selectedDate) {
       datePicker.value = toPickerFormat(selectedDate);

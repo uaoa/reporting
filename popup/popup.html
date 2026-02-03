@@ -58,7 +58,8 @@
     <div class="tab-content" id="mappingsTab" style="display: none;">
       <form class="mapping-form" id="mappingForm">
         <div class="form-row">
-          <input type="text" id="ticketInput" placeholder="Ticket" required>
+          <input type="text" id="ticketInput" placeholder="Ticket" list="ticketOptions" required>
+          <datalist id="ticketOptions"></datalist>
           <input type="text" id="slugInput" placeholder="Slug" required>
           <button type="submit" class="btn btn-primary btn-small">Add</button>
         </div>
