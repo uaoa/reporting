@@ -51,7 +51,7 @@ A Chrome extension to track commits from GitHub and Azure DevOps for daily repor
 
 ### GitHub Setup
 1. Create a Personal Access Token at [github.com/settings/tokens/new](https://github.com/settings/tokens/new)
-2. Select the `repo` scope (Full control of private repositories)
+2. Select the `repo` scope (read access to private repositories)
 3. Enter the token, your username, and organization name in extension settings
 
 ### Azure DevOps Setup

@@ -139,74 +139,78 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderMappings();
   };
 
-  // Render mappings
-  let editingItem = null;
-
+  // Render mappings - grouped by ticket
   const renderMappings = () => {
     const entries = Object.entries(mappings);
     if (!entries.length) {
       mappingsList.innerHTML = '<p class="empty-mappings">No mappings yet</p>';
       return;
     }
-    mappingsList.innerHTML = entries.flatMap(([slug, tickets]) =>
-      tickets.map(ticket => `
-        <div class="mapping-item" data-ticket="${ticket}" data-slug="${slug}">
-          <div class="mapping-info">
-            <span class="mapping-ticket">${ticket}</span>
-            <span class="mapping-arrow">→</span>
-            <span class="mapping-slug">${slug}</span>
-          </div>
-          <div class="mapping-actions">
-            <button class="edit-btn" title="Edit">✎</button>
-            <button class="delete-btn" title="Delete">×</button>
+
+    // Group by ticket: { ticket: [slug1, slug2, ...] }
+    const byTicket = {};
+    for (const [slug, tickets] of entries) {
+      for (const ticket of tickets) {
+        if (!byTicket[ticket]) byTicket[ticket] = [];
+        byTicket[ticket].push(slug);
+      }
+    }
+
+    mappingsList.innerHTML = Object.entries(byTicket).map(([ticket, slugs]) => `
+      <div class="mapping-item" data-ticket="${ticket}">
+        <div class="mapping-info">
+          <span class="mapping-ticket">${ticket}</span>
+          <span class="mapping-arrow">→</span>
+          <div class="mapping-slugs">
+            ${slugs.map(s => `<span class="mapping-slug" data-slug="${s}">${s} <button class="delete-slug-btn" title="Remove slug">×</button></span>`).join('')}
           </div>
         </div>
-      `)
-    ).join('');
+        <button class="delete-btn" title="Delete all">×</button>
+      </div>
+    `).join('');
 
-    mappingsList.querySelectorAll('.edit-btn').forEach(btn => {
+    // Delete single slug from ticket
+    mappingsList.querySelectorAll('.delete-slug-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const slugEl = e.target.closest('.mapping-slug');
         const item = e.target.closest('.mapping-item');
-        const { ticket, slug } = item.dataset;
-        ticketInput.value = ticket;
-        slugInput.value = slug;
-        editingItem = { ticket, slug };
-        ticketInput.focus();
-      });
-    });
-
-    mappingsList.querySelectorAll('.delete-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const item = e.target.closest('.mapping-item');
-        const { ticket, slug } = item.dataset;
+        const slug = slugEl.dataset.slug;
+        const ticket = item.dataset.ticket;
         mappings[slug] = mappings[slug].filter(t => t !== ticket);
         if (!mappings[slug].length) delete mappings[slug];
         saveMappings();
       });
     });
+
+    // Delete all slugs for ticket
+    mappingsList.querySelectorAll('.mapping-item > .delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const item = e.target.closest('.mapping-item');
+        const ticket = item.dataset.ticket;
+        for (const slug of Object.keys(mappings)) {
+          mappings[slug] = mappings[slug].filter(t => t !== ticket);
+          if (!mappings[slug].length) delete mappings[slug];
+        }
+        saveMappings();
+      });
+    });
   };
 
-  // Add/edit mapping
+  // Add mapping
   mappingForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const ticket = ticketInput.value.trim();
     const slug = slugInput.value.trim().toLowerCase();
     if (!ticket || !slug) return;
 
-    if (editingItem) {
-      mappings[editingItem.slug] = mappings[editingItem.slug].filter(t => t !== editingItem.ticket);
-      if (!mappings[editingItem.slug].length) delete mappings[editingItem.slug];
-      editingItem = null;
-    }
-
     if (!mappings[slug]) mappings[slug] = [];
     if (!mappings[slug].includes(ticket)) {
       mappings[slug].push(ticket);
     }
     saveMappings();
-    ticketInput.value = '';
     slugInput.value = '';
-    ticketInput.focus();
+    slugInput.focus();
   });
 
   // Get tickets for commit
