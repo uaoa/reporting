@@ -5,8 +5,6 @@
   "description": "Track commits from GitHub and Azure DevOps, manage work items, and map tickets for reporting days",
   "permissions": [
     "storage",
-    "activeTab",
-    "scripting",
     "contextMenus"
   ],
   "host_permissions": [

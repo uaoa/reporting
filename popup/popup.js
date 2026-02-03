@@ -1,3 +1,9 @@
+/**
+ * Reporting Commits Tracker - Popup Script
+ * Copyright (c) 2026 Zakharii Melnyk (https://github.com/uaoa)
+ * Licensed under MIT License
+ */
+
 document.addEventListener('DOMContentLoaded', async () => {
   const datePicker = document.getElementById('datePicker');
   const loading = document.getElementById('loading');

@@ -1,3 +1,9 @@
+/**
+ * Reporting Commits Tracker - Background Service Worker
+ * Copyright (c) 2026 Zakharii Melnyk (https://github.com/uaoa)
+ * Licensed under MIT License
+ */
+
 // Background service worker for GitHub API
 
 // Create context menu on install

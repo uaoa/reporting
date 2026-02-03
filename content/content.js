@@ -1,3 +1,9 @@
+/**
+ * Reporting Commits Tracker - Content Script
+ * Copyright (c) 2026 Zakharii Melnyk (https://github.com/uaoa)
+ * Licensed under MIT License
+ */
+
 // Content script for rep.smartcloud.com.ua
 // Tracks date selection and stores it for the popup
 

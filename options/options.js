@@ -1,3 +1,9 @@
+/**
+ * Reporting Commits Tracker - Options Script
+ * Copyright (c) 2026 Zakharii Melnyk (https://github.com/uaoa)
+ * Licensed under MIT License
+ */
+
 document.addEventListener('DOMContentLoaded', async () => {
   // GitHub elements
   const githubForm = document.getElementById('githubForm');
