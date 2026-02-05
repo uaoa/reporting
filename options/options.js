@@ -17,8 +17,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   const devopsForm = document.getElementById('devopsForm');
   const devopsTokenInput = document.getElementById('devopsToken');
   const devopsOrganizationInput = document.getElementById('devopsOrganization');
+  const devopsTokenLink = document.getElementById('devopsTokenLink');
   const testDevopsBtn = document.getElementById('testDevopsBtn');
   const devopsStatus = document.getElementById('devopsStatus');
+
+  // Update DevOps token link based on organization
+  function updateDevopsTokenLink() {
+    const org = devopsOrganizationInput.value.trim();
+    if (org) {
+      devopsTokenLink.href = `https://dev.azure.com/${org}/_usersSettings/tokens`;
+      devopsTokenLink.textContent = `dev.azure.com/${org}/_usersSettings/tokens`;
+    } else {
+      devopsTokenLink.href = 'https://dev.azure.com/';
+      devopsTokenLink.textContent = 'dev.azure.com/[Organization]/_usersSettings/tokens';
+    }
+  }
+
+  devopsOrganizationInput.addEventListener('input', updateDevopsTokenLink);
 
   // Commits source elements
   const commitsSourceForm = document.getElementById('commitsSourceForm');
@@ -39,6 +54,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Populate DevOps fields
   if (settings.devopsToken) devopsTokenInput.value = settings.devopsToken;
   if (settings.devopsOrganization) devopsOrganizationInput.value = settings.devopsOrganization;
+  updateDevopsTokenLink();
 
   // Populate commits source
   const commitsSource = settings.commitsSource || 'both';

@@ -51,10 +51,16 @@
         <h2 class="section-title">Azure DevOps</h2>
         <form id="devopsForm">
           <div class="form-group">
-            <label for="devopsToken">Personal Access Token</label>
-            <input type="password" id="devopsToken" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxx">
+            <label for="devopsOrganization">Organization <span class="required">*</span></label>
+            <input type="text" id="devopsOrganization" placeholder="your-organization" required>
+            <p class="hint">Your Azure DevOps organization name (from URL: dev.azure.com/<strong>organization</strong>)</p>
+          </div>
+
+          <div class="form-group">
+            <label for="devopsToken">Personal Access Token <span class="required">*</span></label>
+            <input type="password" id="devopsToken" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxx" required>
             <div class="hint">
-              <p>Create a token at <a href="https://dev.azure.com/_usersSettings/tokens" target="_blank">dev.azure.com/_usersSettings/tokens</a></p>
+              <p>Create a token at <a href="https://dev.azure.com/" target="_blank" id="devopsTokenLink">dev.azure.com/[Organization]/_usersSettings/tokens</a></p>
               <p><strong>Settings:</strong></p>
               <ul class="hint-list">
                 <li><strong>Organization:</strong> Select your organization or "All accessible organizations"</li>
@@ -64,12 +70,6 @@
                 <li><strong>Code:</strong> Check <code>Read</code> (for commits)</li>
               </ul>
             </div>
-          </div>
-
-          <div class="form-group">
-            <label for="devopsOrganization">Organization</label>
-            <input type="text" id="devopsOrganization" placeholder="your-organization">
-            <p class="hint">Your Azure DevOps organization name (from URL: dev.azure.com/<strong>organization</strong>)</p>
           </div>
 
           <div class="actions">
