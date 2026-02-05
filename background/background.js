@@ -109,7 +109,7 @@ async function fetchCommitsForDate(dateStr) {
   const commitsSource = settings.commitsSource || 'both';
 
   const hasGithub = settings.token && settings.username && settings.organization;
-  const hasDevops = settings.devopsToken && settings.devopsOrganization;
+  const hasDevops = settings.devopsToken && settings.devopsOrganization && settings.devopsAuthor;
 
   const allCommits = [];
 
@@ -204,6 +204,7 @@ async function fetchDevopsCommits(settings, dateStr) {
   const allCommits = [];
   const fromDate = date.toISOString();
   const toDate = nextDate.toISOString();
+  const author = settings.devopsAuthor || '';
 
   // Get commits from each project's repositories
   for (const project of projects) {
@@ -222,8 +223,14 @@ async function fetchDevopsCommits(settings, dateStr) {
       // Get commits from each repo
       for (const repo of repos) {
         try {
+          const params = new URLSearchParams({
+            'searchCriteria.fromDate': fromDate,
+            'searchCriteria.toDate': toDate,
+            'searchCriteria.author': author,
+            'api-version': '7.0'
+          });
           const commitsRes = await fetch(
-            `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_apis/git/repositories/${repo.id}/commits?searchCriteria.fromDate=${fromDate}&searchCriteria.toDate=${toDate}&api-version=7.0`,
+            `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_apis/git/repositories/${repo.id}/commits?${params}`,
             { headers }
           );
 

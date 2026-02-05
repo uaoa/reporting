@@ -1,7 +1,7 @@
 {
 	"manifest_version": 3,
 	"name": "Reporting Commits Tracker",
-	"version": "1.0.2",
+	"version": "1.0.3",
 	"description": "Track commits from GitHub and Azure DevOps, manage work items, and map tickets for reporting days",
 	"permissions": ["storage", "contextMenus"],
 	"host_permissions": [

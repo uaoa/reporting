@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const devopsForm = document.getElementById('devopsForm');
   const devopsTokenInput = document.getElementById('devopsToken');
   const devopsOrganizationInput = document.getElementById('devopsOrganization');
+  const devopsAuthorInput = document.getElementById('devopsAuthor');
   const devopsTokenLink = document.getElementById('devopsTokenLink');
   const testDevopsBtn = document.getElementById('testDevopsBtn');
   const devopsStatus = document.getElementById('devopsStatus');
@@ -54,6 +55,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Populate DevOps fields
   if (settings.devopsToken) devopsTokenInput.value = settings.devopsToken;
   if (settings.devopsOrganization) devopsOrganizationInput.value = settings.devopsOrganization;
+  if (settings.devopsAuthor) devopsAuthorInput.value = settings.devopsAuthor;
   updateDevopsTokenLink();
 
   // Populate commits source
@@ -94,7 +96,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const newSettings = {
       ...currentSettings,
       devopsToken: devopsTokenInput.value.trim(),
-      devopsOrganization: devopsOrganizationInput.value.trim()
+      devopsOrganization: devopsOrganizationInput.value.trim(),
+      devopsAuthor: devopsAuthorInput.value.trim()
     };
 
     await chrome.storage.sync.set({ settings: newSettings });
@@ -165,8 +168,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   testDevopsBtn.addEventListener('click', async () => {
     const token = devopsTokenInput.value.trim();
     const organization = devopsOrganizationInput.value.trim();
+    const author = devopsAuthorInput.value.trim();
 
-    if (!token || !organization) {
+    if (!token || !organization || !author) {
       showStatus(devopsStatus, 'Please fill in all DevOps fields', true);
       return;
     }
