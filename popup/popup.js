@@ -26,6 +26,7 @@ const monthKeyOf = (s) => {
 document.addEventListener('DOMContentLoaded', async () => {
   const dateButton = document.getElementById('dateButton');
   const refreshCommits = document.getElementById('refreshCommits');
+  const copyAllCommits = document.getElementById('copyAllCommits');
   const calendar = document.getElementById('calendar');
   const calendarTitle = document.getElementById('calendarTitle');
   const calendarSpinner = document.getElementById('calendarSpinner');
@@ -50,6 +51,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // DevOps elements
   const devopsLoading = document.getElementById('devopsLoading');
   const devopsEmptyState = document.getElementById('devopsEmptyState');
+  const devopsEmptyMessage = document.getElementById('devopsEmptyMessage');
+  const taskSearch = document.getElementById('taskSearch');
   const devopsErrorState = document.getElementById('devopsErrorState');
   const devopsErrorMessage = document.getElementById('devopsErrorMessage');
   const tasksList = document.getElementById('tasksList');
@@ -121,8 +124,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (tabName === 'commits' && !commitsLoaded && canShowCommits) {
       loadCommits(currentDate);
     }
-    if (tabName === 'devops' && !devopsTasksLoaded && hasDevops) {
-      fetchDevopsTasks();
+    if (tabName === 'devops' && hasDevops) {
+      if (!devopsTasksLoaded) fetchDevopsTasks();
+      taskSearch.focus();
     }
 
     // Populate ticket datalist when mappings tab is opened
@@ -174,7 +178,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const saveMappings = async () => {
     await chrome.storage.sync.set({ mappings });
     renderMappings();
-    if (commitsLoaded) renderCommits(commitsCache[currentDate]?.commits || []);
+    if (commitsLoaded) renderCommits(displayedCommits);
   };
 
   // Render mappings - grouped by ticket
@@ -258,8 +262,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     return [...new Set(tickets)];
   };
 
+  // First line of the message + tickets detected by background (work items, AB#123) and by mappings
+  const commitView = (c) => {
+    const msg = (c.message || '').split('\n')[0].trim();
+    const tickets = [...new Set([...(c.tickets || []), ...getTicketsForCommit(msg)])];
+    return { msg, tickets };
+  };
+
+  const formatTime = (iso) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
   // Render commits
+  let displayedCommits = [];
   const renderCommits = (commits) => {
+    displayedCommits = commits;
     loading.style.display = 'none';
     errorState.style.display = 'none';
 
@@ -271,8 +289,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     emptyState.style.display = 'none';
 
     commitsList.innerHTML = commits.map(c => {
-      const msg = (c.message || '').split('\n')[0];
-      const tickets = getTicketsForCommit(msg);
+      const { msg, tickets } = commitView(c);
+      const info = [formatTime(c.date), c.repo].filter(Boolean).join(' · ');
       const sourceBadge = c.source === 'devops'
         ? `<span class="source-badge source-devops">DevOps</span>`
         : `<span class="source-badge source-github">GitHub</span>`;
@@ -283,6 +301,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             <div class="commit-meta">
               ${sourceBadge}
               ${tickets.map(t => `<span class="ticket-badge${t === lastCopied ? ' copied' : ''}" data-ticket="${esc(t)}">${esc(t)}</span>`).join('')}
+              ${info ? `<span class="commit-info" title="${esc(info)}">${esc(info)}</span>` : ''}
             </div>
           </div>
         </li>
@@ -310,6 +329,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     errorState.style.display = 'block';
     errorMessage.textContent = msg;
     commitsList.innerHTML = '';
+    displayedCommits = [];
   };
 
   const sameCommits = (a, b) => a.length === b.length && a.every((c, i) => c.sha === b[i].sha);
@@ -335,6 +355,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       emptyState.style.display = 'none';
       errorState.style.display = 'none';
       commitsList.innerHTML = '';
+      displayedCommits = [];
     }
 
     try {
@@ -465,6 +486,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   refreshCommits.addEventListener('click', () => loadCommits(currentDate, true));
 
+  // Copy the whole day for the report: oldest first, "tickets — message", merge commits skipped
+  copyAllCommits.addEventListener('click', async () => {
+    const lines = displayedCommits.slice().reverse()
+      .map(commitView)
+      .filter(({ msg }) => msg && !/^Merge\b/i.test(msg))
+      .map(({ msg, tickets }) => tickets.length ? `${tickets.join(', ')} — ${msg}` : msg);
+    const unique = [...new Set(lines)];
+
+    if (!unique.length) {
+      showToast('Nothing to copy');
+      return;
+    }
+    await navigator.clipboard.writeText(unique.join('\n'));
+    showToast(`Copied ${unique.length} ${unique.length === 1 ? 'commit' : 'commits'}`);
+  });
+
   // ===== DevOps Tasks =====
 
   // Populate project filter dropdown
@@ -477,14 +514,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Filter and render tasks
   const filterAndRenderTasks = () => {
     const project = projectFilter.value;
-    const filteredTasks = project
-      ? allDevopsTasks.filter(t => t.project === project)
-      : allDevopsTasks;
+    const query = taskSearch.value.trim().toLowerCase();
+    const filteredTasks = allDevopsTasks.filter(t =>
+      (!project || t.project === project) &&
+      (!query || String(t.id).includes(query) || t.title.toLowerCase().includes(query))
+    );
     renderTasksList(filteredTasks);
   };
 
   const renderTasksList = (tasks) => {
     if (!tasks.length) {
+      devopsEmptyMessage.textContent = allDevopsTasks.length ? 'No matching tasks' : 'No tasks assigned to you';
       devopsEmptyState.style.display = 'block';
       tasksList.innerHTML = '';
       return;
@@ -527,6 +567,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     filterAndRenderTasks();
   };
+
+  taskSearch.addEventListener('input', filterAndRenderTasks);
 
   // Project filter change handler
   projectFilter.addEventListener('change', () => {

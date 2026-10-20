@@ -18,6 +18,9 @@
       <header class="tab-header">
         <h1>Commits Tracker</h1>
         <div class="header-actions">
+          <button class="icon-btn" id="copyAllCommits" title="Copy all commits for the day">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H6zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1H2z"/></svg>
+          </button>
           <button class="icon-btn" id="refreshCommits" title="Refresh commits">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
           </button>
@@ -65,13 +68,15 @@
         </select>
       </header>
 
+      <input type="search" id="taskSearch" class="task-search" placeholder="Search by ID or title" autocomplete="off">
+
       <div class="loading" id="devopsLoading">
         <div class="spinner"></div>
         <span>Loading tasks...</span>
       </div>
 
       <div class="empty-state" id="devopsEmptyState" style="display: none;">
-        <p>No tasks assigned to you</p>
+        <p id="devopsEmptyMessage">No tasks assigned to you</p>
       </div>
 
       <div class="error-state" id="devopsErrorState" style="display: none;">

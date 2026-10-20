@@ -13,13 +13,18 @@ A Chrome extension to track commits from GitHub and Azure DevOps for daily repor
 ### Commits Tracking
 - Fetch commits from GitHub organizations
 - Fetch commits from Azure DevOps projects
+- Commits from all branches, not only the default one
 - Filter by source (GitHub only, DevOps only, or both)
 - Click to copy commit messages
+- Copy all commits of the day in one click (`tickets — message`, oldest first, merge commits skipped)
+- Commit time and repository shown next to each commit
+- Calendar highlights days with commits and disables days without them
 - Automatic date detection from rep.smartcloud.com.ua
+- Keyboard shortcut to open the popup: `Alt+Shift+C` (change at `chrome://extensions/shortcuts`)
 
 ### DevOps Tasks
 - View work items assigned to you
-- Filter tasks by project
+- Filter tasks by project and search by ID or title
 - See task type (Bug, Task, User Story, Feature, Epic)
 - Click to copy task ID
 - Quick link to open in Azure DevOps
@@ -27,6 +32,7 @@ A Chrome extension to track commits from GitHub and Azure DevOps for daily repor
 ### Ticket Mappings
 - Create mappings between keywords and ticket numbers
 - Automatic ticket detection in commit messages
+- Tickets detected without mappings: work items linked to Azure DevOps commits, `#123` in Azure commits, `AB#123` everywhere
 - Auto-suggest tickets from DevOps tasks
 
 ### Smart Integration

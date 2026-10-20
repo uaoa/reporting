@@ -1,7 +1,7 @@
 {
 	"manifest_version": 3,
 	"name": "Reporting Commits Tracker",
-	"version": "1.0.4",
+	"version": "1.0.5",
 	"description": "Track commits from GitHub and Azure DevOps, manage work items, and map tickets for reporting days",
 	"permissions": ["storage", "contextMenus"],
 	"host_permissions": [
@@ -28,6 +28,15 @@
 			"all_frames": true
 		}
 	],
+	"commands": {
+		"_execute_action": {
+			"suggested_key": {
+				"default": "Alt+Shift+C",
+				"mac": "Alt+Shift+C"
+			},
+			"description": "Open Reporting Commits Tracker"
+		}
+	},
 	"options_ui": {
 		"page": "options/options.html",
 		"open_in_tab": true

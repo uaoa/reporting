@@ -19,8 +19,8 @@ chrome.runtime.onInstalled.addListener(() => {
     title: 'About Reporting Commits Tracker',
     contexts: ['action']
   });
-  // Drop cache keys from older versions
-  chrome.storage.local.remove(['cachedCommits', 'cachedDate', 'lastCommitsCount', 'lastFetchDate']);
+  // Drop cached commits on install/update: the commit format may have changed
+  chrome.storage.local.remove(['cachedCommits', 'cachedDate', 'lastCommitsCount', 'lastFetchDate', 'commitsCache', 'monthsCache']);
 });
 
 // Handle context menu clicks
@@ -281,6 +281,62 @@ async function fetchCommitsRange(since, until) {
   return { commits, complete: results.every(r => r.complete) };
 }
 
+const unique = (items) => [...new Set(items)];
+
+// Ticket references in commit messages: "AB#123" (Azure Boards) everywhere,
+// plain "#123" only in Azure repos (on GitHub it means issues/PRs)
+function extractTickets(message, source) {
+  const pattern = source === 'devops' ? /#(\d+)\b/g : /\bAB#(\d+)\b/g;
+  return [...(message || '').matchAll(pattern)].map(m => m[1]);
+}
+
+// ===== GitHub (GraphQL: commits from all branches in a few requests) =====
+
+const GH_REPOS_PER_QUERY = 5;
+const GH_VARS = '$since: GitTimestamp!, $until: GitTimestamp!, $author: ID!';
+const ghHistory = (after) => `history(first: 100${after}, since: $since, until: $until, author: {id: $author}) {
+  pageInfo { hasNextPage endCursor }
+  nodes { oid message committedDate }
+}`;
+const ghRefs = (after) => `refs(refPrefix: "refs/heads/", first: 100${after}) {
+  pageInfo { hasNextPage endCursor }
+  nodes { name target { ... on Commit { ${ghHistory('')} } } }
+}`;
+const GH_REFS_PAGE_QUERY = `query(${GH_VARS}, $owner: String!, $name: String!, $cursor: String!) {
+  repository(owner: $owner, name: $name) { ${ghRefs(', after: $cursor')} }
+}`;
+const GH_HISTORY_PAGE_QUERY = `query(${GH_VARS}, $owner: String!, $name: String!, $ref: String!, $cursor: String!) {
+  repository(owner: $owner, name: $name) { ref(qualifiedName: $ref) { target { ... on Commit { ${ghHistory(', after: $cursor')} } } } }
+}`;
+const ghReposQuery = (repos) => `query(${GH_VARS}) {
+  ${repos.map((r, i) => `r${i}: repository(owner: ${JSON.stringify(r.owner.login)}, name: ${JSON.stringify(r.name)}) { ${ghRefs('')} }`).join('\n')}
+}`;
+
+async function githubGraphql(headers, query, variables) {
+  const res = await fetch('https://api.github.com/graphql', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ query, variables })
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('GitHub: Invalid token');
+    throw new Error(`GitHub API error: ${res.status}`);
+  }
+  const { data, errors } = await res.json();
+  if (!data) throw new Error(`GitHub: ${errors?.[0]?.message || 'GraphQL error'}`);
+  return { data, partial: !!errors?.length };
+}
+
+// Node ID of the configured author, needed for the history author filter
+let githubUser = null;
+async function getGithubUserId(headers, login) {
+  if (githubUser?.login === login) return githubUser.id;
+  const { data } = await githubGraphql(headers, 'query($login: String!) { user(login: $login) { id } }', { login });
+  if (!data.user) throw new Error('GitHub: User not found');
+  githubUser = { login, id: data.user.id };
+  return githubUser.id;
+}
+
 async function fetchGithubCommits(settings, since, until) {
   const headers = { 'Authorization': `Bearer ${settings.token}`, 'Accept': 'application/vnd.github.v3+json' };
   const org = encodeURIComponent(settings.organization);
@@ -301,34 +357,76 @@ async function fetchGithubCommits(settings, since, until) {
     if (data.length < 100 || active.length < data.length) break;
   }
 
-  const sinceIso = since.toISOString();
-  const untilIso = until.toISOString();
+  if (!repos.length) return { commits: [], complete: true };
 
-  const results = await mapLimit(repos, CONCURRENCY, async repo => {
-    const commits = [];
-    try {
-      for (let page = 1; ; page++) {
-        const params = new URLSearchParams({ author: settings.username, since: sinceIso, until: untilIso, per_page: '100', page: String(page) });
-        const res = await fetch(`https://api.github.com/repos/${repo.full_name}/commits?${params}`, { headers });
-        if (!res.ok) return res.status === 409 ? commits : null; // 409 = empty repository
-        const data = await res.json();
-        commits.push(...data);
-        if (data.length < 100) return commits;
+  const author = await getGithubUserId(headers, settings.username);
+  const vars = { since: since.toISOString(), until: until.toISOString(), author };
+
+  const commits = [];
+  const followUps = [];
+  let complete = true;
+
+  const addHistory = (repo, history) => {
+    commits.push(...history.nodes.map(c => ({
+      sha: c.oid,
+      message: c.message,
+      date: c.committedDate,
+      repo: repo.name,
+      source: 'github',
+      tickets: unique(extractTickets(c.message, 'github'))
+    })));
+  };
+
+  const collectRefs = (repo, refs) => {
+    for (const ref of refs.nodes) {
+      const history = ref.target?.history;
+      if (!history) continue;
+      addHistory(repo, history);
+      if (history.pageInfo.hasNextPage) {
+        followUps.push({ repo, ref: `refs/heads/${ref.name}`, cursor: history.pageInfo.endCursor });
       }
-    } catch {
-      return null;
     }
+    if (refs.pageInfo.hasNextPage) {
+      followUps.push({ repo, cursor: refs.pageInfo.endCursor });
+    }
+  };
+
+  // Every branch of several repos per request, already filtered by date and author
+  const chunks = [];
+  for (let i = 0; i < repos.length; i += GH_REPOS_PER_QUERY) {
+    chunks.push(repos.slice(i, i + GH_REPOS_PER_QUERY));
+  }
+  await mapLimit(chunks, 4, async chunk => {
+    const { data, partial } = await githubGraphql(headers, ghReposQuery(chunk), vars);
+    if (partial) complete = false;
+    chunk.forEach((repo, i) => {
+      const refs = data[`r${i}`]?.refs;
+      if (refs) collectRefs(repo, refs);
+    });
   });
 
-  return {
-    commits: results.flatMap(r => r || []).map(c => ({
-      sha: c.sha,
-      message: c.commit.message,
-      date: c.commit.committer?.date || c.commit.author?.date,
-      source: 'github'
-    })),
-    complete: results.every(Boolean)
-  };
+  // Rare: repos with 100+ branches or branches with 100+ commits in range
+  while (followUps.length) {
+    await mapLimit(followUps.splice(0), 4, async ({ repo, ref, cursor }) => {
+      const base = { ...vars, owner: repo.owner.login, name: repo.name, cursor };
+      try {
+        if (ref) {
+          const { data } = await githubGraphql(headers, GH_HISTORY_PAGE_QUERY, { ...base, ref });
+          const history = data.repository?.ref?.target?.history;
+          if (!history) { complete = false; return; }
+          addHistory(repo, history);
+          if (history.pageInfo.hasNextPage) followUps.push({ repo, ref, cursor: history.pageInfo.endCursor });
+        } else {
+          const { data } = await githubGraphql(headers, GH_REFS_PAGE_QUERY, base);
+          if (data.repository?.refs) collectRefs(repo, data.repository.refs); else complete = false;
+        }
+      } catch {
+        complete = false;
+      }
+    });
+  }
+
+  return { commits, complete };
 }
 
 function devopsHeaders(settings) {
@@ -355,42 +453,61 @@ async function fetchDevopsCommits(settings, since, until) {
   // Empty repos have no default branch; disabled repos reject requests
   const repos = ((await reposRes.json()).value || []).filter(r => r.defaultBranch && !r.isDisabled);
 
-  const fromDate = since.toISOString();
-  const toDate = until.toISOString();
-  const top = 1000;
-
   const results = await mapLimit(repos, CONCURRENCY, async repo => {
-    const commits = [];
+    const base = `https://dev.azure.com/${org}/${encodeURIComponent(repo.project.name)}/_apis/git/repositories/${repo.id}`;
     try {
-      for (let skip = 0; ; skip += top) {
-        const params = new URLSearchParams({
-          'searchCriteria.fromDate': fromDate,
-          'searchCriteria.toDate': toDate,
-          'searchCriteria.author': settings.devopsAuthor,
-          'searchCriteria.$top': String(top),
-          'searchCriteria.$skip': String(skip),
-          'api-version': '7.0'
-        });
-        const res = await fetch(
-          `https://dev.azure.com/${org}/${encodeURIComponent(repo.project.name)}/_apis/git/repositories/${repo.id}/commits?${params}`,
-          { headers }
-        );
-        if (!res.ok) return null;
-        const data = (await res.json()).value || [];
-        commits.push(...data.map(c => ({
-          sha: c.commitId,
-          message: c.comment,
-          date: c.committer?.date || c.author.date,
-          source: 'devops'
-        })));
-        if (data.length < top) return commits;
-      }
+      // Branch heads with their last commit date: only branches touched since the range start can have commits in it
+      const statsRes = await fetch(`${base}/stats/branches?api-version=7.0`, { headers });
+      if (!statsRes.ok) return null;
+      const branches = ((await statsRes.json()).value || []).filter(b => {
+        const date = b.commit?.committer?.date || b.commit?.author?.date;
+        return !date || new Date(date) >= since;
+      });
+
+      const lists = await mapLimit(branches, 4, b => fetchDevopsBranchCommits(base, headers, b.name, settings.devopsAuthor, since, until));
+      if (lists.some(list => !list)) return null;
+
+      return lists.flat().map(c => ({
+        sha: c.commitId,
+        message: c.comment,
+        date: c.committer?.date || c.author.date,
+        repo: repo.name,
+        source: 'devops',
+        tickets: unique([
+          ...(c.workItems || []).map(wi => String(wi.id)),
+          ...extractTickets(c.comment, 'devops')
+        ])
+      }));
     } catch {
       return null;
     }
   });
 
   return { commits: results.flatMap(r => r || []), complete: results.every(Boolean) };
+}
+
+// Commits of one branch in range, with linked work items; null on failure
+async function fetchDevopsBranchCommits(base, headers, branch, author, since, until) {
+  const top = 1000;
+  const commits = [];
+  for (let skip = 0; ; skip += top) {
+    const params = new URLSearchParams({
+      'searchCriteria.fromDate': since.toISOString(),
+      'searchCriteria.toDate': until.toISOString(),
+      'searchCriteria.author': author,
+      'searchCriteria.itemVersion.version': branch,
+      'searchCriteria.itemVersion.versionType': 'branch',
+      'searchCriteria.includeWorkItems': 'true',
+      'searchCriteria.$top': String(top),
+      'searchCriteria.$skip': String(skip),
+      'api-version': '7.0'
+    });
+    const res = await fetch(`${base}/commits?${params}`, { headers });
+    if (!res.ok) return null;
+    const data = (await res.json()).value || [];
+    commits.push(...data);
+    if (data.length < top) return commits;
+  }
 }
 
 // ===== Azure DevOps Tasks =====
