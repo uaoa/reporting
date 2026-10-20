@@ -59,10 +59,30 @@ document.addEventListener('click', (e) => {
   }
 }, true);
 
-// Poll for date input changes (works in iframe)
+// Detect main page (no modal/iframe with date) - only in top frame
+const isTopFrame = window === window.top;
+const isMainPage = () => {
+  const url = window.location.href;
+  return url === 'https://rep.smartcloud.com.ua/' ||
+         url.startsWith('https://rep.smartcloud.com.ua/?') ||
+         url === 'https://rep.smartcloud.com.ua';
+};
+
+if (isTopFrame && isMainPage()) {
+  notifyMainPage();
+}
+
+// Poll for date input changes (works in iframe) and SPA URL changes.
+// A cheap timer instead of a subtree MutationObserver, skipped while the tab is hidden
 let lastDate = null;
-setInterval(() => {
-  if (!isExtensionValid()) return;
+let lastUrl = window.location.href;
+const poll = setInterval(() => {
+  if (!isExtensionValid()) {
+    clearInterval(poll);
+    return;
+  }
+  if (document.hidden) return;
+
   const input = document.getElementById('bpfee') || document.querySelector('input[title*="date"]');
   if (input?.value) {
     const date = parseDateFromText(input.value);
@@ -71,31 +91,11 @@ setInterval(() => {
       saveDate(date);
     }
   }
-}, 500);
 
-// Detect main page (no modal/iframe with date) - only in top frame
-if (window === window.top) {
-  // Check on page load
-  const isMainPage = () => {
-    const url = window.location.href;
-    return url === 'https://rep.smartcloud.com.ua/' ||
-           url.startsWith('https://rep.smartcloud.com.ua/?') ||
-           url === 'https://rep.smartcloud.com.ua';
-  };
-
-  if (isMainPage()) {
-    notifyMainPage();
-  }
-
-  // Watch for URL changes (SPA navigation)
-  let lastUrl = window.location.href;
-  const observer = new MutationObserver(() => {
-    if (window.location.href !== lastUrl) {
-      lastUrl = window.location.href;
-      if (isMainPage()) {
-        notifyMainPage();
-      }
+  if (isTopFrame && window.location.href !== lastUrl) {
+    lastUrl = window.location.href;
+    if (isMainPage()) {
+      notifyMainPage();
     }
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-}
+  }
+}, 500);

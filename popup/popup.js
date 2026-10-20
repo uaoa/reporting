@@ -4,8 +4,34 @@
  * Licensed under MIT License
  */
 
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const DEVOPS_TASKS_TTL = 5 * 60 * 1000;
+
+// Escape text for safe use in innerHTML (content and attributes)
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+// Date helpers ("dd.mm.yyyy" is the format used across the extension)
+const pad = (n) => String(n).padStart(2, '0');
+const formatDate = (d) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
+const parseDate = (s) => {
+  const [day, month, year] = s.split('.');
+  return new Date(year, month - 1, day);
+};
+const monthKey = (year, month) => `${year}-${pad(month + 1)}`;
+const monthKeyOf = (s) => {
+  const [, month, year] = s.split('.');
+  return `${year}-${month}`;
+};
+
 document.addEventListener('DOMContentLoaded', async () => {
-  const datePicker = document.getElementById('datePicker');
+  const dateButton = document.getElementById('dateButton');
+  const refreshCommits = document.getElementById('refreshCommits');
+  const calendar = document.getElementById('calendar');
+  const calendarTitle = document.getElementById('calendarTitle');
+  const calendarSpinner = document.getElementById('calendarSpinner');
+  const calendarGrid = document.getElementById('calendarGrid');
+  const prevMonth = document.getElementById('prevMonth');
+  const nextMonth = document.getElementById('nextMonth');
   const loading = document.getElementById('loading');
   const emptyState = document.getElementById('emptyState');
   const errorState = document.getElementById('errorState');
@@ -30,12 +56,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   const openDevopsSettings = document.getElementById('openDevopsSettings');
   const projectFilter = document.getElementById('projectFilter');
 
-  let mappings = {};
-  let devopsTasksLoaded = false;
-  let allDevopsTasks = [];
+  // Read everything the popup needs in two parallel storage calls
+  const [{ settings, mappings: storedMappings }, local] = await Promise.all([
+    chrome.storage.sync.get(['settings', 'mappings']),
+    chrome.storage.local.get([
+      'selectedDate', 'selectedAt', 'lastActiveTab', 'lastCopied', 'selectedProject',
+      'commitsCache', 'monthsCache', 'cachedDevopsTasks', 'cachedDevopsTime'
+    ])
+  ]);
 
-  // Check if settings are configured
-  const { settings } = await chrome.storage.sync.get('settings');
   const hasGithub = settings?.token && settings?.username && settings?.organization;
   const hasDevops = settings?.devopsToken && settings?.devopsOrganization;
 
@@ -44,6 +73,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.runtime.openOptionsPage();
     return;
   }
+
+  let mappings = storedMappings || {};
+  let lastCopied = local.lastCopied;
+  let selectedProject = local.selectedProject;
+  let commitsCache = local.commitsCache || {};
+  let commitsLoaded = false;
+  let devopsTasksLoaded = false;
+  let allDevopsTasks = local.cachedDevopsTasks || [];
+
+  // Month -> Set of dates with commits, used to disable empty days in the calendar
+  const monthDays = Object.fromEntries(
+    Object.entries(local.monthsCache || {}).map(([key, entry]) => [key, new Set(entry.days)])
+  );
 
   // Hide tabs based on configuration
   const tabsContainer = document.getElementById('tabsContainer');
@@ -75,7 +117,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Save last active tab
     chrome.storage.local.set({ lastActiveTab: tabName });
 
-    // Load DevOps tasks when tab is clicked for the first time
+    // Load commits/tasks when their tab is shown for the first time
+    if (tabName === 'commits' && !commitsLoaded && canShowCommits) {
+      loadCommits(currentDate);
+    }
     if (tabName === 'devops' && !devopsTasksLoaded && hasDevops) {
       fetchDevopsTasks();
     }
@@ -102,7 +147,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const copyToClipboard = async (text, element) => {
     await navigator.clipboard.writeText(text);
-    await chrome.storage.local.set({ lastCopied: text });
+    lastCopied = text;
+    chrome.storage.local.set({ lastCopied: text });
     if (lastCopiedElement) {
       lastCopiedElement.classList.remove('copied');
     }
@@ -114,29 +160,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   // Populate ticket input datalist with DevOps tasks
-  const populateTicketDatalist = async () => {
+  const populateTicketDatalist = () => {
     const datalist = document.getElementById('ticketOptions');
-    if (!datalist || !hasDevops) return;
+    if (!datalist || !hasDevops || !allDevopsTasks.length) return;
 
-    // Use cached tasks if available
-    const { cachedDevopsTasks } = await chrome.storage.local.get('cachedDevopsTasks');
-    if (cachedDevopsTasks?.length) {
-      datalist.innerHTML = cachedDevopsTasks.map(task =>
-        `<option value="${task.id}">${task.id} - ${task.title.substring(0, 50)}${task.title.length > 50 ? '...' : ''}</option>`
-      ).join('');
-    }
+    datalist.innerHTML = allDevopsTasks.map(task => {
+      const title = task.title.length > 50 ? `${task.title.substring(0, 50)}...` : task.title;
+      return `<option value="${esc(task.id)}">${esc(task.id)} - ${esc(title)}</option>`;
+    }).join('');
   };
 
-  // Load/save mappings
-  const loadMappings = async () => {
-    const { mappings: m } = await chrome.storage.sync.get('mappings');
-    mappings = m || {};
-    renderMappings();
-  };
-
+  // Save mappings
   const saveMappings = async () => {
     await chrome.storage.sync.set({ mappings });
     renderMappings();
+    if (commitsLoaded) renderCommits(commitsCache[currentDate]?.commits || []);
   };
 
   // Render mappings - grouped by ticket
@@ -157,45 +195,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     mappingsList.innerHTML = Object.entries(byTicket).map(([ticket, slugs]) => `
-      <div class="mapping-item" data-ticket="${ticket}">
+      <div class="mapping-item" data-ticket="${esc(ticket)}">
         <div class="mapping-info">
-          <span class="mapping-ticket">${ticket}</span>
+          <span class="mapping-ticket">${esc(ticket)}</span>
           <span class="mapping-arrow">→</span>
           <div class="mapping-slugs">
-            ${slugs.map(s => `<span class="mapping-slug" data-slug="${s}">${s} <button class="delete-slug-btn" title="Remove slug">×</button></span>`).join('')}
+            ${slugs.map(s => `<span class="mapping-slug" data-slug="${esc(s)}">${esc(s)} <button class="delete-slug-btn" title="Remove slug">×</button></span>`).join('')}
           </div>
         </div>
         <button class="delete-btn" title="Delete all">×</button>
       </div>
     `).join('');
+  };
+
+  mappingsList.addEventListener('click', (e) => {
+    const item = e.target.closest('.mapping-item');
+    if (!item) return;
+    const ticket = item.dataset.ticket;
 
     // Delete single slug from ticket
-    mappingsList.querySelectorAll('.delete-slug-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const slugEl = e.target.closest('.mapping-slug');
-        const item = e.target.closest('.mapping-item');
-        const slug = slugEl.dataset.slug;
-        const ticket = item.dataset.ticket;
-        mappings[slug] = mappings[slug].filter(t => t !== ticket);
-        if (!mappings[slug].length) delete mappings[slug];
-        saveMappings();
-      });
-    });
+    if (e.target.closest('.delete-slug-btn')) {
+      const slug = e.target.closest('.mapping-slug').dataset.slug;
+      mappings[slug] = mappings[slug].filter(t => t !== ticket);
+      if (!mappings[slug].length) delete mappings[slug];
+      saveMappings();
+      return;
+    }
 
     // Delete all slugs for ticket
-    mappingsList.querySelectorAll('.mapping-item > .delete-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const item = e.target.closest('.mapping-item');
-        const ticket = item.dataset.ticket;
-        for (const slug of Object.keys(mappings)) {
-          mappings[slug] = mappings[slug].filter(t => t !== ticket);
-          if (!mappings[slug].length) delete mappings[slug];
-        }
-        saveMappings();
-      });
-    });
-  };
+    if (e.target.closest('.delete-btn')) {
+      for (const slug of Object.keys(mappings)) {
+        mappings[slug] = mappings[slug].filter(t => t !== ticket);
+        if (!mappings[slug].length) delete mappings[slug];
+      }
+      saveMappings();
+    }
+  });
 
   // Add mapping
   mappingForm.addEventListener('submit', (e) => {
@@ -226,63 +261,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Render commits
   const renderCommits = (commits) => {
     loading.style.display = 'none';
+    errorState.style.display = 'none';
+
     if (!commits.length) {
       emptyState.style.display = 'block';
+      commitsList.innerHTML = '';
       return;
     }
     emptyState.style.display = 'none';
-    errorState.style.display = 'none';
 
     commitsList.innerHTML = commits.map(c => {
-      const msg = c.commit.message.split('\n')[0];
+      const msg = (c.message || '').split('\n')[0];
       const tickets = getTicketsForCommit(msg);
       const sourceBadge = c.source === 'devops'
         ? `<span class="source-badge source-devops">DevOps</span>`
         : `<span class="source-badge source-github">GitHub</span>`;
       return `
-        <li class="commit-item" data-message="${msg.replace(/"/g, '&quot;')}">
+        <li class="commit-item${msg === lastCopied ? ' copied' : ''}" data-message="${esc(msg)}">
           <div class="commit-main">
-            <div class="commit-message">${msg.replace(/</g, '&lt;')}</div>
+            <div class="commit-message">${esc(msg)}</div>
             <div class="commit-meta">
               ${sourceBadge}
-              ${tickets.length ? tickets.map(t => `<span class="ticket-badge" data-ticket="${t}">${t}</span>`).join('') : ''}
+              ${tickets.map(t => `<span class="ticket-badge${t === lastCopied ? ' copied' : ''}" data-ticket="${esc(t)}">${esc(t)}</span>`).join('')}
             </div>
           </div>
         </li>
       `;
     }).join('');
 
-    // Restore last copied highlight
-    chrome.storage.local.get('lastCopied').then(({ lastCopied }) => {
-      if (lastCopied) {
-        commitsList.querySelectorAll('.commit-item').forEach(item => {
-          if (item.dataset.message === lastCopied) {
-            item.classList.add('copied');
-            lastCopiedElement = item;
-          }
-        });
-        commitsList.querySelectorAll('.ticket-badge').forEach(badge => {
-          if (badge.dataset.ticket === lastCopied) {
-            badge.classList.add('copied');
-            lastCopiedElement = badge;
-          }
-        });
-      }
-    });
-
-    commitsList.querySelectorAll('.commit-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        if (!e.target.classList.contains('ticket-badge')) copyToClipboard(item.dataset.message, item);
-      });
-    });
-
-    commitsList.querySelectorAll('.ticket-badge').forEach(badge => {
-      badge.addEventListener('click', (e) => {
-        e.stopPropagation();
-        copyToClipboard(badge.dataset.ticket, badge);
-      });
-    });
+    const copied = commitsList.querySelector('.copied');
+    if (copied) lastCopiedElement = copied;
   };
+
+  commitsList.addEventListener('click', (e) => {
+    const badge = e.target.closest('.ticket-badge');
+    if (badge) {
+      copyToClipboard(badge.dataset.ticket, badge);
+      return;
+    }
+    const item = e.target.closest('.commit-item');
+    if (item) copyToClipboard(item.dataset.message, item);
+  });
 
   // Show error
   const showError = (msg) => {
@@ -290,37 +309,161 @@ document.addEventListener('DOMContentLoaded', async () => {
     emptyState.style.display = 'none';
     errorState.style.display = 'block';
     errorMessage.textContent = msg;
+    commitsList.innerHTML = '';
   };
 
-  // Fetch commits with caching
-  const fetchCommits = async (date, forceRefresh = false) => {
-    if (!forceRefresh) {
-      const { cachedCommits, cachedDate } = await chrome.storage.local.get(['cachedCommits', 'cachedDate']);
-      if (cachedDate === date && cachedCommits) {
-        loading.style.display = 'none';
-        renderCommits(cachedCommits);
-        return;
-      }
-    }
+  const sameCommits = (a, b) => a.length === b.length && a.every((c, i) => c.sha === b[i].sha);
 
-    loading.style.display = 'flex';
-    emptyState.style.display = 'none';
-    errorState.style.display = 'none';
-    commitsList.innerHTML = '';
+  // Render cached commits instantly, then let the background revalidate
+  let commitsRequest = 0;
+  let firstCommitsLoad = null;
+  const loadCommits = (date, forceRefresh = false) => {
+    const promise = fetchCommits(date, forceRefresh);
+    if (!commitsLoaded) firstCommitsLoad = promise;
+    commitsLoaded = true;
+    return promise;
+  };
+
+  const fetchCommits = async (date, forceRefresh) => {
+    const request = ++commitsRequest;
+    const cached = !forceRefresh && commitsCache[date];
+
+    if (cached) {
+      renderCommits(cached.commits);
+    } else {
+      loading.style.display = 'flex';
+      emptyState.style.display = 'none';
+      errorState.style.display = 'none';
+      commitsList.innerHTML = '';
+    }
 
     try {
-      const response = await chrome.runtime.sendMessage({ action: 'fetchCommits', date });
+      const response = await chrome.runtime.sendMessage({ action: 'fetchCommits', date, force: forceRefresh });
+      if (request !== commitsRequest) return;
       if (response.error) {
-        showError(response.error);
-      } else {
-        const commits = response.commits || [];
-        await chrome.storage.local.set({ cachedCommits: commits, cachedDate: date });
-        renderCommits(commits);
+        if (!cached) showError(response.error);
+        return;
       }
+      const commits = response.commits || [];
+      commitsCache[date] = { commits };
+
+      const days = monthDays[monthKeyOf(date)];
+      if (days) {
+        if (commits.length) days.add(date); else days.delete(date);
+        if (calendar.matches(':popover-open')) renderCalendar();
+      }
+
+      if (!cached || !sameCommits(cached.commits, commits)) renderCommits(commits);
     } catch {
-      showError('Failed to fetch commits. Check your settings.');
+      if (request === commitsRequest && !cached) showError('Failed to fetch commits. Check your settings.');
     }
   };
+
+  // ===== Calendar =====
+
+  let currentDate = local.selectedDate || formatDate(new Date());
+  let viewYear;
+  let viewMonth;
+  const requestedMonths = new Set();
+
+  const updateDateButton = () => {
+    const weekday = parseDate(currentDate).toLocaleDateString('en-GB', { weekday: 'short' });
+    dateButton.textContent = `${weekday} ${currentDate}`;
+  };
+
+  // Ask background for days with commits (cached there); never blocks the UI
+  const loadMonth = async (year, month) => {
+    const key = monthKey(year, month);
+    if (requestedMonths.has(key)) return;
+    requestedMonths.add(key);
+    if (calendar.matches(':popover-open')) renderCalendar();
+
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'fetchMonth', year, month });
+      if (response.error) {
+        requestedMonths.delete(key);
+      } else {
+        monthDays[key] = new Set(response.days);
+        // Month fetch also warmed the per-day cache in storage
+        const { commitsCache: fresh } = await chrome.storage.local.get('commitsCache');
+        commitsCache = fresh || commitsCache;
+      }
+    } catch {
+      requestedMonths.delete(key);
+    }
+    if (calendar.matches(':popover-open')) renderCalendar();
+  };
+
+  const renderCalendar = () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayStr = formatDate(today);
+    const key = monthKey(viewYear, viewMonth);
+    const active = monthDays[key];
+
+    calendarTitle.textContent = `${MONTH_NAMES[viewMonth]} ${viewYear}`;
+    calendarSpinner.hidden = !(requestedMonths.has(key) && !active);
+    nextMonth.disabled = viewYear * 12 + viewMonth >= today.getFullYear() * 12 + today.getMonth();
+
+    // Monday-first offset
+    const offset = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+    let html = '<span></span>'.repeat(offset);
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(viewYear, viewMonth, day);
+      const value = formatDate(date);
+      const hasCommits = active?.has(value);
+      // Today and the selected day stay clickable: their data may be newer than the month cache
+      const disabled = date > today || (active && !hasCommits && value !== todayStr && value !== currentDate);
+      const classes = [
+        'calendar-day',
+        hasCommits && 'has-commits',
+        value === todayStr && 'today',
+        value === currentDate && 'selected'
+      ].filter(Boolean).join(' ');
+      html += `<button type="button" class="${classes}" data-date="${value}"${disabled ? ' disabled' : ''}>${day}</button>`;
+    }
+    calendarGrid.innerHTML = html;
+  };
+
+  const showMonth = (year, month) => {
+    viewYear = year;
+    viewMonth = month;
+    renderCalendar();
+    loadMonth(year, month);
+  };
+
+  calendar.addEventListener('beforetoggle', (e) => {
+    if (e.newState !== 'open') return;
+    const d = parseDate(currentDate);
+    showMonth(d.getFullYear(), d.getMonth());
+  });
+
+  prevMonth.addEventListener('click', () => {
+    const d = new Date(viewYear, viewMonth - 1, 1);
+    showMonth(d.getFullYear(), d.getMonth());
+  });
+
+  nextMonth.addEventListener('click', () => {
+    const d = new Date(viewYear, viewMonth + 1, 1);
+    showMonth(d.getFullYear(), d.getMonth());
+  });
+
+  calendarGrid.addEventListener('click', (e) => {
+    const day = e.target.closest('.calendar-day');
+    if (!day || day.disabled) return;
+    calendar.hidePopover();
+    if (day.dataset.date === currentDate) return;
+
+    currentDate = day.dataset.date;
+    updateDateButton();
+    // Remember manual choice so the popup reopens on this day
+    chrome.storage.local.set({ selectedDate: currentDate });
+    loadCommits(currentDate);
+  });
+
+  refreshCommits.addEventListener('click', () => loadCommits(currentDate, true));
 
   // ===== DevOps Tasks =====
 
@@ -328,14 +471,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const populateProjectFilter = (tasks) => {
     const projects = [...new Set(tasks.map(t => t.project))].sort();
     projectFilter.innerHTML = '<option value="">All Projects</option>' +
-      projects.map(p => `<option value="${p}">${p}</option>`).join('');
+      projects.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
   };
 
   // Filter and render tasks
   const filterAndRenderTasks = () => {
-    const selectedProject = projectFilter.value;
-    const filteredTasks = selectedProject
-      ? allDevopsTasks.filter(t => t.project === selectedProject)
+    const project = projectFilter.value;
+    const filteredTasks = project
+      ? allDevopsTasks.filter(t => t.project === project)
       : allDevopsTasks;
     renderTasksList(filteredTasks);
   };
@@ -350,39 +493,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     devopsErrorState.style.display = 'none';
 
     tasksList.innerHTML = tasks.map(task => `
-      <li class="task-item" data-id="${task.id}">
+      <li class="task-item" data-id="${esc(task.id)}">
         <div class="task-main">
-          <span class="task-id" data-id="${task.id}" title="Click to copy">${task.id}</span>
-          <span class="task-title">${task.title.replace(/</g, '&lt;')}</span>
+          <span class="task-id${String(task.id) === lastCopied ? ' copied' : ''}" data-id="${esc(task.id)}" title="Click to copy">${esc(task.id)}</span>
+          <span class="task-title">${esc(task.title)}</span>
         </div>
         <div class="task-meta">
-          <span class="task-project">${task.project}</span>
-          <span class="task-type task-type-${task.type.toLowerCase().replace(/\s+/g, '-')}">${task.type}</span>
-          <a href="${task.url}" target="_blank" class="task-link" title="Open in DevOps">↗</a>
+          <span class="task-project">${esc(task.project)}</span>
+          <span class="task-type task-type-${esc(String(task.type).toLowerCase().replace(/\s+/g, '-'))}">${esc(task.type)}</span>
+          <a href="${esc(task.url)}" target="_blank" class="task-link" title="Open in DevOps">↗</a>
         </div>
       </li>
     `).join('');
 
-    // Restore last copied highlight
-    chrome.storage.local.get('lastCopied').then(({ lastCopied }) => {
-      if (lastCopied) {
-        tasksList.querySelectorAll('.task-id').forEach(el => {
-          if (el.dataset.id === lastCopied) {
-            el.classList.add('copied');
-            lastCopiedElement = el;
-          }
-        });
-      }
-    });
-
-    // Click to copy task ID
-    tasksList.querySelectorAll('.task-id').forEach(el => {
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        copyToClipboard(el.dataset.id, el);
-      });
-    });
+    const copied = tasksList.querySelector('.task-id.copied');
+    if (copied) lastCopiedElement = copied;
   };
+
+  // Click to copy task ID
+  tasksList.addEventListener('click', (e) => {
+    const el = e.target.closest('.task-id');
+    if (el) copyToClipboard(el.dataset.id, el);
+  });
 
   const renderDevopsTasks = (tasks) => {
     devopsLoading.style.display = 'none';
@@ -390,17 +522,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     populateProjectFilter(tasks);
 
     // Restore saved project filter
-    chrome.storage.local.get('selectedProject').then(({ selectedProject }) => {
-      if (selectedProject && [...projectFilter.options].some(o => o.value === selectedProject)) {
-        projectFilter.value = selectedProject;
-      }
-      filterAndRenderTasks();
-    });
+    if (selectedProject && [...projectFilter.options].some(o => o.value === selectedProject)) {
+      projectFilter.value = selectedProject;
+    }
+    filterAndRenderTasks();
   };
 
   // Project filter change handler
   projectFilter.addEventListener('change', () => {
-    chrome.storage.local.set({ selectedProject: projectFilter.value });
+    selectedProject = projectFilter.value;
+    chrome.storage.local.set({ selectedProject });
     filterAndRenderTasks();
   });
 
@@ -411,47 +542,38 @@ document.addEventListener('DOMContentLoaded', async () => {
     devopsErrorMessage.textContent = msg;
   };
 
-  const fetchDevopsTasks = async (forceRefresh = false) => {
+  // Show cached tasks instantly, refresh in background when older than TTL
+  const fetchDevopsTasks = async () => {
     devopsTasksLoaded = true;
+    const cached = local.cachedDevopsTasks;
 
-    // Check cache first
-    if (!forceRefresh) {
-      const { cachedDevopsTasks, cachedDevopsTime } = await chrome.storage.local.get(['cachedDevopsTasks', 'cachedDevopsTime']);
-      // Cache for 5 minutes
-      if (cachedDevopsTasks && cachedDevopsTime && (Date.now() - cachedDevopsTime < 5 * 60 * 1000)) {
-        devopsLoading.style.display = 'none';
-        renderDevopsTasks(cachedDevopsTasks);
-        return;
-      }
+    if (cached) {
+      renderDevopsTasks(cached);
+      if (Date.now() - (local.cachedDevopsTime || 0) < DEVOPS_TASKS_TTL) return;
+    } else {
+      devopsLoading.style.display = 'flex';
+      devopsEmptyState.style.display = 'none';
+      devopsErrorState.style.display = 'none';
+      tasksList.innerHTML = '';
     }
-
-    devopsLoading.style.display = 'flex';
-    devopsEmptyState.style.display = 'none';
-    devopsErrorState.style.display = 'none';
-    tasksList.innerHTML = '';
 
     try {
       const response = await chrome.runtime.sendMessage({ action: 'fetchDevopsTasks' });
       if (response.error) {
-        showDevopsError(response.error);
-      } else {
-        const tasks = response.tasks || [];
-        await chrome.storage.local.set({ cachedDevopsTasks: tasks, cachedDevopsTime: Date.now() });
-        renderDevopsTasks(tasks);
+        if (!cached) showDevopsError(response.error);
+        return;
       }
+      const tasks = response.tasks || [];
+      chrome.storage.local.set({ cachedDevopsTasks: tasks, cachedDevopsTime: Date.now() });
+      if (JSON.stringify(tasks) !== JSON.stringify(cached)) renderDevopsTasks(tasks);
     } catch {
-      showDevopsError('Failed to fetch tasks. Check your settings.');
+      if (!cached) showDevopsError('Failed to fetch tasks. Check your settings.');
     }
   };
-
-  // Date helpers
-  const toPickerFormat = (d) => d.split('.').reverse().join('-');
-  const toDisplayFormat = (d) => d.split('-').reverse().join('.');
 
   // Event handlers
   openSettings.addEventListener('click', () => chrome.runtime.openOptionsPage());
   openDevopsSettings.addEventListener('click', () => chrome.runtime.openOptionsPage());
-  datePicker.addEventListener('change', () => datePicker.value && fetchCommits(toDisplayFormat(datePicker.value)));
 
   // Export mappings
   exportMappingsBtn.addEventListener('click', () => {
@@ -496,13 +618,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Initialize
-  await loadMappings();
+  renderMappings();
+  updateDateButton();
 
   // Check if date was recently selected from rep.smartcloud.com.ua
-  const { selectedDate, selectedAt, lastActiveTab } = await chrome.storage.local.get(['selectedDate', 'selectedAt', 'lastActiveTab']);
-  const dateSelectedRecently = selectedAt && (Date.now() - selectedAt < 10000); // within 10 seconds
+  const dateSelectedRecently = local.selectedAt && (Date.now() - local.selectedAt < 10000); // within 10 seconds
 
-  let initialTab = lastActiveTab;
+  let initialTab = local.lastActiveTab;
 
   // If date was selected recently, force commits tab
   if (dateSelectedRecently && canShowCommits) {
@@ -517,18 +639,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     initialTab = canShowCommits ? 'commits' : (hasDevops ? 'devops' : 'mappings');
   }
 
+  if (initialTab !== 'commits') {
+    loading.style.display = 'none';
+  }
+
   switchTab(initialTab);
 
-  if (canShowCommits && initialTab === 'commits') {
-    if (selectedDate) {
-      datePicker.value = toPickerFormat(selectedDate);
-      fetchCommits(selectedDate);
-    } else {
-      const today = new Date();
-      datePicker.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      loading.style.display = 'none';
-    }
-  } else {
-    loading.style.display = 'none';
+  // Warm up calendar data once the day's commits are loaded, so it doesn't compete with them
+  if (canShowCommits) {
+    const d = parseDate(currentDate);
+    Promise.resolve(firstCommitsLoad).then(() => loadMonth(d.getFullYear(), d.getMonth()));
   }
 });

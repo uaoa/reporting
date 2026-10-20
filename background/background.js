@@ -6,6 +6,12 @@
 
 // Background service worker for GitHub API
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY_TTL = 2 * 60 * 1000; // revalidate recent days at most every 2 minutes
+const MONTH_TTL = 10 * 60 * 1000;
+const MAX_CACHED_DAYS = 120;
+const CONCURRENCY = 12;
+
 // Create context menu on install
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -13,6 +19,8 @@ chrome.runtime.onInstalled.addListener(() => {
     title: 'About Reporting Commits Tracker',
     contexts: ['action']
   });
+  // Drop cache keys from older versions
+  chrome.storage.local.remove(['cachedCommits', 'cachedDate', 'lastCommitsCount', 'lastFetchDate']);
 });
 
 // Handle context menu clicks
@@ -40,8 +48,15 @@ async function setIcon(active, tabId) {
 // Handle messages
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'fetchCommits') {
-    fetchCommitsForDate(request.date)
+    getCommitsForDate(request.date, request.force)
       .then(commits => sendResponse({ commits }))
+      .catch(error => sendResponse({ error: error.message }));
+    return true;
+  }
+
+  if (request.action === 'fetchMonth') {
+    getMonthDays(request.year, request.month, request.force)
+      .then(days => sendResponse({ days }))
       .catch(error => sendResponse({ error: error.message }));
     return true;
   }
@@ -58,21 +73,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const tabId = sender.tab?.id;
 
     if (tabId) {
-      fetchCommitsForDate(request.date)
-        .then(commits => {
-          // Cache commits for popup
-          chrome.storage.local.set({
-            lastCommitsCount: commits.length,
-            lastFetchDate: request.date,
-            cachedCommits: commits,
-            cachedDate: request.date
-          });
-          setIcon(commits.length > 0, tabId);
-        })
+      // Prefetch into cache so the popup opens instantly
+      getCommitsForDate(request.date)
+        .then(commits => setIcon(commits.length > 0, tabId))
         .catch(() => setIcon(false, tabId));
     }
     sendResponse({ ok: true });
-    return true;
+    return false;
   }
 
   if (request.action === 'mainPage') {
@@ -82,272 +89,368 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       setIcon(false, tabId);
     }
     sendResponse({ ok: true });
-    return true;
+    return false;
   }
 });
 
-// Reset icon when navigating away
+// Reset icon when navigating away (tab.url is only visible for our host)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'loading' && tab.url && !tab.url.includes('rep.smartcloud.com.ua')) {
+  if (changeInfo.status === 'loading' && !tab.url?.includes('rep.smartcloud.com.ua')) {
     setIcon(false, tabId);
   }
 });
 
-// GitHub API functions
+// ===== Helpers =====
+
 async function getSettings() {
   const { settings } = await chrome.storage.sync.get('settings');
   return settings || {};
 }
+
+const pad = (n) => String(n).padStart(2, '0');
 
 function parseDate(dateStr) {
   const [day, month, year] = dateStr.split('.');
   return new Date(year, month - 1, day);
 }
 
-async function fetchCommitsForDate(dateStr) {
+function formatDate(date) {
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
+}
+
+// "27.01.2026" -> "2026-01"
+function monthKeyOf(dateStr) {
+  const [, month, year] = dateStr.split('.');
+  return `${year}-${month}`;
+}
+
+function addDays(date, days) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+// Commits for a period can still show up later (late pushes), so a period is
+// final only when it was fetched more than a day after it ended
+function isFresh(entry, rangeEnd, ttl) {
+  if (!entry?.time) return false;
+  return entry.time - rangeEnd.getTime() > DAY_MS || Date.now() - entry.time < ttl;
+}
+
+// Run async fn over items with limited parallelism
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+// Share one request between concurrent callers (popup + content script prefetch)
+const inflight = new Map();
+function dedupe(key, fn) {
+  if (!inflight.has(key)) {
+    inflight.set(key, fn().finally(() => inflight.delete(key)));
+  }
+  return inflight.get(key);
+}
+
+// ===== Cache =====
+
+let cacheQueue = Promise.resolve();
+
+// Serialize read-modify-write cycles so parallel fetches don't overwrite each other
+function updateCache(mutate) {
+  cacheQueue = cacheQueue.then(async () => {
+    const data = await chrome.storage.local.get(['commitsCache', 'monthsCache']);
+    const commitsCache = data.commitsCache || {};
+    const monthsCache = data.monthsCache || {};
+    mutate(commitsCache, monthsCache);
+
+    const keys = Object.keys(commitsCache);
+    if (keys.length > MAX_CACHED_DAYS) {
+      keys.sort((a, b) => commitsCache[b].time - commitsCache[a].time)
+        .slice(MAX_CACHED_DAYS)
+        .forEach(k => delete commitsCache[k]);
+    }
+
+    await chrome.storage.local.set({ commitsCache, monthsCache });
+  }).catch(e => console.error('Failed to update cache:', e));
+  return cacheQueue;
+}
+
+// Incomplete results (some repos failed) are stored with time 0 so they get refetched
+function saveDays(byDay, complete) {
+  const time = complete ? Date.now() : 0;
+  return updateCache((commitsCache, monthsCache) => {
+    for (const [date, commits] of Object.entries(byDay)) {
+      commitsCache[date] = { commits, time };
+      // Keep calendar activity in sync with the freshest day data
+      const month = monthsCache[monthKeyOf(date)];
+      if (month) {
+        const days = new Set(month.days);
+        if (commits.length) days.add(date); else days.delete(date);
+        month.days = [...days];
+      }
+    }
+  });
+}
+
+async function getCommitsForDate(dateStr, force = false) {
+  const start = parseDate(dateStr);
+  const end = addDays(start, 1);
+
+  if (!force) {
+    const { commitsCache } = await chrome.storage.local.get('commitsCache');
+    const entry = commitsCache?.[dateStr];
+    if (isFresh(entry, end, DAY_TTL)) return entry.commits;
+  }
+
+  return dedupe(`day:${dateStr}`, async () => {
+    const { commits, complete } = await fetchCommitsRange(start, end);
+    await saveDays({ [dateStr]: commits }, complete);
+    return commits;
+  });
+}
+
+// Returns dates ("dd.mm.yyyy") of the month that have commits; month is 0-based
+async function getMonthDays(year, month, force = false) {
+  const key = `${year}-${pad(month + 1)}`;
+  const start = new Date(year, month, 1);
+  const end = new Date(year, month + 1, 1);
+
+  if (!force) {
+    const { monthsCache } = await chrome.storage.local.get('monthsCache');
+    const entry = monthsCache?.[key];
+    if (isFresh(entry, end, MONTH_TTL)) return entry.days;
+  }
+
+  return dedupe(`month:${key}`, async () => {
+    const { commits, complete } = await fetchCommitsRange(start, end);
+
+    // Split by local day; this also warms the per-day cache for the whole month
+    const now = new Date();
+    const byDay = {};
+    for (let d = start; d < end && d <= now; d = addDays(d, 1)) {
+      byDay[formatDate(d)] = [];
+    }
+    for (const c of commits) {
+      byDay[formatDate(new Date(c.date))]?.push(c);
+    }
+    const days = Object.keys(byDay).filter(date => byDay[date].length);
+
+    await updateCache((_, monthsCache) => {
+      monthsCache[key] = { days, time: complete ? Date.now() : 0 };
+    });
+    await saveDays(byDay, complete);
+    return days;
+  });
+}
+
+// ===== Commits =====
+
+async function fetchCommitsRange(since, until) {
   const settings = await getSettings();
   const commitsSource = settings.commitsSource || 'both';
 
   const hasGithub = settings.token && settings.username && settings.organization;
   const hasDevops = settings.devopsToken && settings.devopsOrganization && settings.devopsAuthor;
 
-  const allCommits = [];
-
-  // Fetch from GitHub if configured
+  const sources = [];
   if ((commitsSource === 'github' || commitsSource === 'both') && hasGithub) {
-    const githubCommits = await fetchGithubCommits(settings, dateStr);
-    allCommits.push(...githubCommits);
+    sources.push(fetchGithubCommits(settings, since, until));
   }
-
-  // Fetch from DevOps if configured
   if ((commitsSource === 'devops' || commitsSource === 'both') && hasDevops) {
-    const devopsCommits = await fetchDevopsCommits(settings, dateStr);
-    allCommits.push(...devopsCommits);
+    sources.push(fetchDevopsCommits(settings, since, until));
   }
 
-  if (allCommits.length === 0 && !hasGithub && !hasDevops) {
+  if (!sources.length) {
     throw new Error('Please configure GitHub or DevOps settings');
   }
 
-  // Sort all commits by date
-  return allCommits.sort((a, b) => new Date(b.commit.author.date) - new Date(a.commit.author.date));
+  const results = await Promise.all(sources);
+
+  const seen = new Set();
+  const commits = results.flatMap(r => r.commits)
+    .filter(c => !seen.has(c.sha) && seen.add(c.sha))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  return { commits, complete: results.every(r => r.complete) };
 }
 
-async function fetchGithubCommits(settings, dateStr) {
-  const date = parseDate(dateStr);
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + 1);
-
+async function fetchGithubCommits(settings, since, until) {
   const headers = { 'Authorization': `Bearer ${settings.token}`, 'Accept': 'application/vnd.github.v3+json' };
+  const org = encodeURIComponent(settings.organization);
 
-  // Fetch repos
+  // Repos sorted by last push: once we reach repos pushed before the range,
+  // neither they nor the following ones can contain commits from it
   const repos = [];
-  let page = 1;
-  while (true) {
-    const res = await fetch(`https://api.github.com/orgs/${settings.organization}/repos?per_page=100&page=${page}&type=all`, { headers });
+  for (let page = 1; ; page++) {
+    const res = await fetch(`https://api.github.com/orgs/${org}/repos?per_page=100&page=${page}&type=all&sort=pushed&direction=desc`, { headers });
     if (!res.ok) {
       if (res.status === 401) throw new Error('GitHub: Invalid token');
       if (res.status === 404) throw new Error('GitHub: Organization not found');
       throw new Error(`GitHub API error: ${res.status}`);
     }
     const data = await res.json();
-    repos.push(...data);
-    if (data.length < 100) break;
-    page++;
+    const active = data.filter(r => r.pushed_at && new Date(r.pushed_at) >= since);
+    repos.push(...active);
+    if (data.length < 100 || active.length < data.length) break;
   }
 
-  // Fetch commits from all repos
-  const since = date.toISOString();
-  const until = nextDate.toISOString();
-  const results = await Promise.all(repos.map(async repo => {
-    const params = new URLSearchParams({ author: settings.username, since, until, per_page: '100' });
-    const res = await fetch(`https://api.github.com/repos/${repo.full_name}/commits?${params}`, { headers });
-    return res.ok ? res.json() : [];
-  }));
+  const sinceIso = since.toISOString();
+  const untilIso = until.toISOString();
 
-  // Deduplicate
-  const seen = new Set();
-  return results.flat()
-    .filter(c => !seen.has(c.sha) && seen.add(c.sha))
-    .map(c => ({
-      ...c,
+  const results = await mapLimit(repos, CONCURRENCY, async repo => {
+    const commits = [];
+    try {
+      for (let page = 1; ; page++) {
+        const params = new URLSearchParams({ author: settings.username, since: sinceIso, until: untilIso, per_page: '100', page: String(page) });
+        const res = await fetch(`https://api.github.com/repos/${repo.full_name}/commits?${params}`, { headers });
+        if (!res.ok) return res.status === 409 ? commits : null; // 409 = empty repository
+        const data = await res.json();
+        commits.push(...data);
+        if (data.length < 100) return commits;
+      }
+    } catch {
+      return null;
+    }
+  });
+
+  return {
+    commits: results.flatMap(r => r || []).map(c => ({
+      sha: c.sha,
+      message: c.commit.message,
+      date: c.commit.committer?.date || c.commit.author?.date,
       source: 'github'
-    }));
+    })),
+    complete: results.every(Boolean)
+  };
 }
 
-async function fetchDevopsCommits(settings, dateStr) {
-  const date = parseDate(dateStr);
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + 1);
-
-  const headers = {
+function devopsHeaders(settings) {
+  return {
     'Authorization': `Basic ${btoa(`:${settings.devopsToken}`)}`,
     'Content-Type': 'application/json'
   };
-
-  // Get all projects
-  const projectsRes = await fetch(
-    `https://dev.azure.com/${settings.devopsOrganization}/_apis/projects?api-version=7.0`,
-    { headers }
-  );
-
-  if (!projectsRes.ok) {
-    if (projectsRes.status === 401 || projectsRes.status === 403) {
-      throw new Error('DevOps: Invalid token or insufficient permissions');
-    }
-    throw new Error(`DevOps API error: ${projectsRes.status}`);
-  }
-
-  const projectsData = await projectsRes.json();
-  const projects = projectsData.value || [];
-
-  const allCommits = [];
-  const fromDate = date.toISOString();
-  const toDate = nextDate.toISOString();
-  const author = settings.devopsAuthor || '';
-
-  // Get commits from each project's repositories
-  for (const project of projects) {
-    try {
-      // Get repos in project
-      const reposRes = await fetch(
-        `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_apis/git/repositories?api-version=7.0`,
-        { headers }
-      );
-
-      if (!reposRes.ok) continue;
-
-      const reposData = await reposRes.json();
-      const repos = reposData.value || [];
-
-      // Get commits from each repo
-      for (const repo of repos) {
-        try {
-          const params = new URLSearchParams({
-            'searchCriteria.fromDate': fromDate,
-            'searchCriteria.toDate': toDate,
-            'searchCriteria.author': author,
-            'api-version': '7.0'
-          });
-          const commitsRes = await fetch(
-            `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_apis/git/repositories/${repo.id}/commits?${params}`,
-            { headers }
-          );
-
-          if (!commitsRes.ok) continue;
-
-          const commitsData = await commitsRes.json();
-          const commits = commitsData.value || [];
-
-          allCommits.push(...commits.map(c => ({
-            sha: c.commitId,
-            html_url: `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_git/${repo.name}/commit/${c.commitId}`,
-            commit: {
-              message: c.comment,
-              author: {
-                name: c.author.name,
-                email: c.author.email,
-                date: c.author.date
-              }
-            },
-            source: 'devops',
-            project: project.name,
-            repo: repo.name
-          })));
-        } catch {
-          // Skip repo on error
-        }
-      }
-    } catch {
-      // Skip project on error
-    }
-  }
-
-  // Deduplicate by commit ID
-  const seen = new Set();
-  return allCommits.filter(c => !seen.has(c.sha) && seen.add(c.sha));
 }
 
-// Azure DevOps API functions
+async function fetchDevopsCommits(settings, since, until) {
+  const headers = devopsHeaders(settings);
+  const org = encodeURIComponent(settings.devopsOrganization);
+
+  // Single org-level call instead of one repositories request per project
+  const reposRes = await fetch(`https://dev.azure.com/${org}/_apis/git/repositories?api-version=7.0`, { headers });
+
+  if (!reposRes.ok) {
+    if (reposRes.status === 401 || reposRes.status === 403) {
+      throw new Error('DevOps: Invalid token or insufficient permissions');
+    }
+    throw new Error(`DevOps API error: ${reposRes.status}`);
+  }
+
+  // Empty repos have no default branch; disabled repos reject requests
+  const repos = ((await reposRes.json()).value || []).filter(r => r.defaultBranch && !r.isDisabled);
+
+  const fromDate = since.toISOString();
+  const toDate = until.toISOString();
+  const top = 1000;
+
+  const results = await mapLimit(repos, CONCURRENCY, async repo => {
+    const commits = [];
+    try {
+      for (let skip = 0; ; skip += top) {
+        const params = new URLSearchParams({
+          'searchCriteria.fromDate': fromDate,
+          'searchCriteria.toDate': toDate,
+          'searchCriteria.author': settings.devopsAuthor,
+          'searchCriteria.$top': String(top),
+          'searchCriteria.$skip': String(skip),
+          'api-version': '7.0'
+        });
+        const res = await fetch(
+          `https://dev.azure.com/${org}/${encodeURIComponent(repo.project.name)}/_apis/git/repositories/${repo.id}/commits?${params}`,
+          { headers }
+        );
+        if (!res.ok) return null;
+        const data = (await res.json()).value || [];
+        commits.push(...data.map(c => ({
+          sha: c.commitId,
+          message: c.comment,
+          date: c.committer?.date || c.author.date,
+          source: 'devops'
+        })));
+        if (data.length < top) return commits;
+      }
+    } catch {
+      return null;
+    }
+  });
+
+  return { commits: results.flatMap(r => r || []), complete: results.every(Boolean) };
+}
+
+// ===== Azure DevOps Tasks =====
+
 async function fetchDevopsTasks() {
   const settings = await getSettings();
   if (!settings.devopsToken || !settings.devopsOrganization) {
     throw new Error('Please configure DevOps settings');
   }
 
-  const headers = {
-    'Authorization': `Basic ${btoa(`:${settings.devopsToken}`)}`,
-    'Content-Type': 'application/json'
+  const headers = devopsHeaders(settings);
+  const org = encodeURIComponent(settings.devopsOrganization);
+
+  // Org-level WIQL already covers all projects, so one query is enough
+  const wiqlQuery = {
+    query: "SELECT [System.Id] FROM WorkItems WHERE [System.AssignedTo] = @Me AND [System.State] <> 'Closed' AND [System.State] <> 'Done' AND [System.State] <> 'Removed' ORDER BY [System.ChangedDate] DESC"
   };
 
-  // First, get all projects
-  const projectsRes = await fetch(
-    `https://dev.azure.com/${settings.devopsOrganization}/_apis/projects?api-version=7.0`,
-    { headers }
-  );
+  const wiqlRes = await fetch(`https://dev.azure.com/${org}/_apis/wit/wiql?api-version=7.0`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(wiqlQuery)
+  });
 
-  if (!projectsRes.ok) {
-    if (projectsRes.status === 401 || projectsRes.status === 403) {
+  if (!wiqlRes.ok) {
+    if (wiqlRes.status === 401 || wiqlRes.status === 403) {
       throw new Error('Invalid token or insufficient permissions');
     }
-    throw new Error(`DevOps API error: ${projectsRes.status}`);
+    throw new Error(`DevOps API error: ${wiqlRes.status}`);
   }
 
-  const projectsData = await projectsRes.json();
-  const projects = projectsData.value || [];
+  const workItemIds = ((await wiqlRes.json()).workItems || []).map(wi => wi.id);
 
-  // WIQL query to get work items assigned to current user
-  const wiqlQuery = {
-    query: "SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.TeamProject] FROM WorkItems WHERE [System.AssignedTo] = @Me AND [System.State] <> 'Closed' AND [System.State] <> 'Done' AND [System.State] <> 'Removed' ORDER BY [System.ChangedDate] DESC"
-  };
+  // Fetch work item details in parallel batches of 200
+  const batches = [];
+  for (let i = 0; i < workItemIds.length; i += 200) {
+    batches.push(workItemIds.slice(i, i + 200));
+  }
 
-  // Query each project for work items
-  const allTasks = [];
-
-  for (const project of projects) {
+  const results = await Promise.all(batches.map(async ids => {
     try {
-      const wiqlRes = await fetch(
-        `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_apis/wit/wiql?api-version=7.0`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(wiqlQuery)
-        }
+      const res = await fetch(
+        `https://dev.azure.com/${org}/_apis/wit/workitems?ids=${ids.join(',')}&fields=System.Id,System.Title,System.State,System.WorkItemType,System.TeamProject&api-version=7.0`,
+        { headers }
       );
-
-      if (!wiqlRes.ok) continue;
-
-      const wiqlData = await wiqlRes.json();
-      const workItemIds = (wiqlData.workItems || []).map(wi => wi.id);
-
-      if (workItemIds.length === 0) continue;
-
-      // Fetch work item details in batches of 200
-      for (let i = 0; i < workItemIds.length; i += 200) {
-        const batchIds = workItemIds.slice(i, i + 200).join(',');
-        const detailsRes = await fetch(
-          `https://dev.azure.com/${settings.devopsOrganization}/_apis/wit/workitems?ids=${batchIds}&fields=System.Id,System.Title,System.State,System.WorkItemType,System.TeamProject&api-version=7.0`,
-          { headers }
-        );
-
-        if (detailsRes.ok) {
-          const detailsData = await detailsRes.json();
-          allTasks.push(...(detailsData.value || []).map(wi => ({
-            id: wi.id,
-            title: wi.fields['System.Title'],
-            state: wi.fields['System.State'],
-            type: wi.fields['System.WorkItemType'],
-            project: wi.fields['System.TeamProject'] || project.name,
-            url: `https://dev.azure.com/${settings.devopsOrganization}/${project.name}/_workitems/edit/${wi.id}`
-          })));
-        }
-      }
+      return res.ok ? (await res.json()).value || [] : [];
     } catch {
-      // Skip project on error
+      return [];
     }
-  }
+  }));
 
-  // Deduplicate by ID
-  const seen = new Set();
-  return allTasks.filter(task => !seen.has(task.id) && seen.add(task.id));
+  return results.flat().map(wi => {
+    const project = wi.fields['System.TeamProject'];
+    return {
+      id: wi.id,
+      title: wi.fields['System.Title'],
+      state: wi.fields['System.State'],
+      type: wi.fields['System.WorkItemType'],
+      project,
+      url: `https://dev.azure.com/${org}/${encodeURIComponent(project)}/_workitems/edit/${wi.id}`
+    };
+  });
 }

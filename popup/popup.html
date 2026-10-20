@@ -17,8 +17,28 @@
     <div class="tab-content" id="commitsTab">
       <header class="tab-header">
         <h1>Commits Tracker</h1>
-        <input type="date" id="datePicker" class="date-picker">
+        <div class="header-actions">
+          <button class="icon-btn" id="refreshCommits" title="Refresh commits">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+          </button>
+          <button type="button" id="dateButton" class="date-picker" popovertarget="calendar"></button>
+        </div>
       </header>
+
+      <div class="calendar" id="calendar" popover>
+        <div class="calendar-header">
+          <button type="button" class="calendar-nav" id="prevMonth" aria-label="Previous month">‹</button>
+          <span class="calendar-title">
+            <span id="calendarTitle"></span>
+            <span class="spinner spinner-small" id="calendarSpinner" hidden></span>
+          </span>
+          <button type="button" class="calendar-nav" id="nextMonth" aria-label="Next month">›</button>
+        </div>
+        <div class="calendar-weekdays">
+          <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+        </div>
+        <div class="calendar-grid" id="calendarGrid"></div>
+      </div>
 
       <div class="loading" id="loading">
         <div class="spinner"></div>
